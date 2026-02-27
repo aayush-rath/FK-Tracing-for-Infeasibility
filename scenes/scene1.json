@@ -1,0 +1,27 @@
+{
+  "spheres": [
+    {
+      "center": [0.5, 0, 0.6],
+      "radius": 0.2
+    },
+    {
+      "center": [0.3, 0.3, 1.5],
+      "radius": 0.15
+    }
+  ],
+  "boxes": [
+    {
+      "center": [0.0, 0.5, 0.8],
+      "size": [0.3, 0.3, 0.6],
+      "rpy": [0, 0, 0]
+    }
+  ],
+  "cylinders": [
+    {
+      "center": [-0.3, 0.0, 0.7],
+      "radius": 0.1,
+      "height": 0.8,
+      "orientation": [1, 0, 0, 0]
+    }
+  ]
+}
