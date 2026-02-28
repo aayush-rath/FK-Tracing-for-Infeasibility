@@ -3,6 +3,7 @@
 #include "robot.cuh"
 #include "kinematics.cuh"
 #include "math.cuh"
+#include <curand_kernel.h>
 
 #define MAX_LINKS 10
 
@@ -106,26 +107,6 @@ static inline double compute_sdf(
     Transform local_link_transforms[MAX_LINKS];
     compute_fk_device(ctx->robot, config, local_link_transforms);
     double min_clearance = 1e10;
-    
-    // for (int link_idx = 0; link_idx < ctx->robot.num_links; link_idx++) {
-    //     Primitive robot_prim = transform_primitive_device(
-    //         ctx->robot.links[link_idx].shape,
-    //         ctx->robot.link_transforms[link_idx]
-    //     );
-        
-    //     for (int obs_idx = 0; obs_idx < ctx->scene.num_obstacles; obs_idx++) {
-    //         Primitive obstacle = ctx->scene.obstacles[obs_idx];
-    //         double dist = primitive_to_primitive_distance(robot_prim, obstacle);
-            
-    //         if (threadIdx.x == 0 && blockIdx.x == 0 && link_idx < 2 && obs_idx == 0) {
-    //             printf("  Link %d vs Obs 0: dist=%f\n", link_idx, dist);
-    //         }
-            
-    //         if (dist < min_clearance) {
-    //             min_clearance = dist;
-    //         }
-    //     }
-    // }
 
     for (int link_idx = 0; link_idx < ctx->robot.num_links; link_idx++) {
         Primitive robot_prim = transform_primitive_device(
@@ -142,3 +123,58 @@ static inline double compute_sdf(
     
     return min_clearance;
 }
+
+struct RobotSDF {
+    DeviceSDFContext* d_ctx;
+    int dof;
+    __host__ __device__ __forceinline__
+    double operator()(const double* config) const {
+        #ifdef __CUDA_ARCH__
+            return compute_sdf(d_ctx, config, dof);
+        #else
+            return 1e30;
+        #endif
+    }
+
+    bool get_line_intersections(
+        const double* start_point,
+        const double* goal_point,
+        std::vector<double>& intersections,
+        int samples = 500,
+        int max_bisection_iters = 500,
+        double tol = 1e-11
+    ) const;
+    bool get_line_rays(
+        const double* start_point,
+        const double* goal_point,
+        std::vector<double>& intersections,
+        int num_rays = 40,
+        int samples = 100,
+        int max_bisection_iters = 100,
+        double tol = 1e-8
+    ) const;
+};
+
+
+__global__ void ray_intersection_kernel(
+    RobotSDF sdf,
+    const double* d_start,
+    const double* d_goal,
+    const double* d_main_dir,
+    double max_dist,
+    int num_rays,
+    int samples,
+    int max_bisection_iters,
+    double tol,
+    double* d_out_intersections,
+    int* d_out_count,
+    int max_outputs,
+    int dof
+);
+
+__global__
+void eval_sdf_kernel(
+    RobotSDF sdf,
+    const double* q,
+    double* out
+);

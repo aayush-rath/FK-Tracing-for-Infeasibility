@@ -92,7 +92,7 @@ struct FrontierNode {
     int component;  
 };
 
-__device__ int find_root(int* parent, int x) {
+__host__ __device__ int find_root(const int* parent, int x) {
     while (parent[x] != x)
         x = parent[x];
     return x;
@@ -232,10 +232,13 @@ void traceManifold(
     int* component_array,
     int num_seeds
 ) {
+    std::cout << "I am here 0\n";
     FrontierNode* d_frontier, *d_next_frontier;
     int *d_frontier_size, *d_next_frontier_size;
 
     int max_frontier_size = 500000; 
+
+    std::cout << "I am here 1\n";
 
     cudaMalloc(&d_frontier, max_frontier_size * sizeof(FrontierNode));
     cudaMalloc(&d_next_frontier, max_frontier_size * sizeof(FrontierNode));
@@ -244,7 +247,6 @@ void traceManifold(
 
     Permutahedral_Simplex initial_simplex[MAX_NUM_SEEDS];
 
-    #pragma parallel for
     for (int i = 0; i < num_seeds; i++) {
         double seed[MAX_D];
         std::cout << "Seed " << i << ": ";
@@ -259,7 +261,7 @@ void traceManifold(
 
     Permutahedral_Simplex initial_edges[MAX_NUM_SEEDS][MAX_FACES];
     int num_faces[MAX_NUM_SEEDS] = {0};
-    #pragma parallel for
+    std::cout << "I am here 2\n";
     for (int i = 0; i < num_seeds; i++) {
         num_faces[i] += faces(initial_simplex[i], initial_edges[i], 1);
     }
@@ -290,7 +292,7 @@ void traceManifold(
         
         cudaMemset(d_next_frontier_size, 0, sizeof(int));
 
-        int threads = 256;  // Increased thread count for better occupancy
+        int threads = 256;
         int blocks = (frontier_size_host + threads - 1) / threads;
 
         expand_frontier_kernel<<<blocks, threads>>>(
