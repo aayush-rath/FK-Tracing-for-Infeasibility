@@ -258,7 +258,7 @@ int main(int argc, char* argv[]) {
     int hcompo[num_seeds];
     cudaMemcpy(hcompo, d_component_array, num_seeds * sizeof(int), cudaMemcpyDeviceToHost);
     std::cout << "Component array: ";
-    for (int i = 0; i < seed.size(); i++) std::cout << hcompo[i] << " ";
+    for (int i = 0; i < num_seeds; i++) std::cout << hcompo[i] << " ";
     std::cout << std::endl;
 
     dump_intersecting_tetrahedra_from_components(fk, d_Ls, hcompo,  "../plotting/intersecting_tetrahedra_co");

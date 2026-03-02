@@ -17,7 +17,7 @@ Aayush Rath
 constexpr int MAX_D = 6;
 constexpr int MAX_FACES = 256;
 constexpr int MAX_COFACES = 256;
-constexpr int MAX_NUM_SEEDS = 40;
+constexpr int MAX_NUM_SEEDS = 60;
 
 // Get the value of C(n, r) =  number of combinations
 int binomial (int n, int r) {

@@ -126,7 +126,6 @@ Hashtable allocate_device_hash_table(int capacity) {
 }
 
 
-
 // Returns the k-dimensional faces of an l-dimensional simplex
 __host__ __device__ __forceinline__
 int faces(

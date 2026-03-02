@@ -11,6 +11,100 @@ void eval_sdf_kernel(
     }
 }
 
+// __global__ void ray_intersection_kernel(
+//     RobotSDF sdf,
+//     const double* d_start,
+//     const double* d_goal,
+//     const double* d_main_dir,
+//     double max_dist,
+//     int num_rays,
+//     int samples,
+//     int max_bisection_iters,
+//     double tol,
+//     double* d_out_intersections,
+//     int* d_out_count,
+//     int max_outputs,
+//     int dof
+// ) {
+//     int tid = blockIdx.x * blockDim.x + threadIdx.x;
+//     if (tid >= num_rays * 2) return;
+
+//     int origin_type = tid % 2; 
+//     const double* origin = (origin_type == 0) ? d_start : d_goal;
+
+//     curandState localState;
+//     curand_init(1337, tid, 0, &localState);
+
+//     double ray_dir[6];
+//     double projection = 0;
+//     while (projection <= 0.01) {
+//         double norm = 0;
+//         for (int i = 0; i < dof; i++) {
+//             ray_dir[i] = curand_normal_double(&localState);
+//             norm += ray_dir[i] * ray_dir[i];
+//         }
+//         norm = sqrt(norm);
+//         projection = 0;
+//         for (int i = 0; i < dof; i++) {
+//             ray_dir[i] /= norm;
+//             projection += ray_dir[i] * d_main_dir[i];
+//         }
+//     }
+
+//     auto is_outside_bounds = [&](const double* q) {
+//         for (int i = 0; i < dof; i++) {
+//             if (q[i] > 3.14159265358979323846 || q[i] < -3.14159265358979323846) 
+//                 return true;
+//         }
+//         return false;
+//     };
+
+//     auto point_at = [&](double t, double* q_out) {
+//         for (int i = 0; i < dof; i++) q_out[i] = origin[i] + t * ray_dir[i];
+//     };
+
+//     double q_prev[6], q_curr[6], q_m[6];
+//     point_at(0, q_prev);
+    
+//     if (is_outside_bounds(q_prev)) return;
+//     double f_prev = sdf(q_prev);
+
+//     for (int s = 1; s <= samples; s++) {
+//         double t_curr = (double(s) / samples) * max_dist;
+//         point_at(t_curr, q_curr);
+
+//         if (is_outside_bounds(q_curr)) break;
+
+//         double f_curr = sdf(q_curr);
+
+//         if (f_prev * f_curr <= 0.0) {
+//             double ta = (double(s - 1) / samples) * max_dist;
+//             double tb = t_curr;
+//             double fa = f_prev;
+
+//             for (int k = 0; k < max_bisection_iters; k++) {
+//                 double tm = 0.5 * (ta + tb);
+//                 point_at(tm, q_m);
+//                 double fm = sdf(q_m);
+
+//                 if (abs(fm) < tol || abs(tb - ta) < 1e-8) {
+//                     int idx = atomicAdd(d_out_count, 1);
+//                     if (idx < max_outputs) {
+//                         for (int d = 0; d < dof; d++) 
+//                             d_out_intersections[idx * dof + d] = q_m[d];
+//                     }
+//                     break;
+//                 }
+//                 if (fa * fm > 0.0) { ta = tm; fa = fm; }
+//                 else { tb = tm; }
+//             }
+//             f_curr = sdf(q_curr); 
+//         }
+//         f_prev = f_curr;
+//     }
+// }
+
+
 __global__ void ray_intersection_kernel(
     RobotSDF sdf,
     const double* d_start,
@@ -28,12 +122,18 @@ __global__ void ray_intersection_kernel(
 ) {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     if (tid >= num_rays * 2) return;
-
-    int origin_type = tid % 2; 
+    int origin_type = tid % 2;
     const double* origin = (origin_type == 0) ? d_start : d_goal;
 
     curandState localState;
     curand_init(1337, tid, 0, &localState);
+
+    double sg[6];       // g - s
+    double sg_norm_sq = 0.0;
+    for (int i = 0; i < dof; i++) {
+        sg[i] = d_goal[i] - d_start[i];
+        sg_norm_sq += sg[i] * sg[i];
+    }
 
     double ray_dir[6];
     double projection = 0;
@@ -51,9 +151,37 @@ __global__ void ray_intersection_kernel(
         }
     }
 
+    double d_dot_sg = 0.0;
+    for (int i = 0; i < dof; i++)
+        d_dot_sg += ray_dir[i] * sg[i];
+
+    double t_plane_min = 0.0;
+    double t_plane_max = max_dist;
+
+    const double parallel_eps = 1e-10;
+    if (fabs(d_dot_sg) > parallel_eps) {
+        double num_s = 0.0;
+        for (int i = 0; i < dof; i++)
+            num_s += (d_start[i] - origin[i]) * sg[i];
+        double t_plane_s = num_s / d_dot_sg;
+
+        double num_g = 0.0;
+        for (int i = 0; i < dof; i++)
+            num_g += (d_goal[i] - origin[i]) * sg[i];
+        double t_plane_g = num_g / d_dot_sg;
+
+        double t_lo = fmin(t_plane_s, t_plane_g);
+        double t_hi = fmax(t_plane_s, t_plane_g);
+
+        t_plane_min = fmax(0.0, t_lo);
+        t_plane_max = fmin(max_dist, t_hi);
+
+        if (t_plane_min >= t_plane_max) return;
+    }
+
     auto is_outside_bounds = [&](const double* q) {
         for (int i = 0; i < dof; i++) {
-            if (q[i] > 3.14159265358979323846 || q[i] < -3.14159265358979323846) 
+            if (q[i] > 3.14159265358979323846 || q[i] < -3.14159265358979323846)
                 return true;
         }
         return false;
@@ -64,21 +192,19 @@ __global__ void ray_intersection_kernel(
     };
 
     double q_prev[6], q_curr[6], q_m[6];
-    point_at(0, q_prev);
-    
+    point_at(t_plane_min, q_prev);
     if (is_outside_bounds(q_prev)) return;
     double f_prev = sdf(q_prev);
 
     for (int s = 1; s <= samples; s++) {
-        double t_curr = (double(s) / samples) * max_dist;
+        // Sample within [t_plane_min, t_plane_max] instead of [0, max_dist]
+        double t_curr = t_plane_min + (double(s) / samples) * (t_plane_max - t_plane_min);
         point_at(t_curr, q_curr);
-
         if (is_outside_bounds(q_curr)) break;
-
         double f_curr = sdf(q_curr);
 
         if (f_prev * f_curr <= 0.0) {
-            double ta = (double(s - 1) / samples) * max_dist;
+            double ta = t_plane_min + (double(s - 1) / samples) * (t_plane_max - t_plane_min);
             double tb = t_curr;
             double fa = f_prev;
 
@@ -90,20 +216,20 @@ __global__ void ray_intersection_kernel(
                 if (abs(fm) < tol || abs(tb - ta) < 1e-8) {
                     int idx = atomicAdd(d_out_count, 1);
                     if (idx < max_outputs) {
-                        for (int d = 0; d < dof; d++) 
+                        for (int d = 0; d < dof; d++)
                             d_out_intersections[idx * dof + d] = q_m[d];
                     }
                     break;
                 }
+
                 if (fa * fm > 0.0) { ta = tm; fa = fm; }
                 else { tb = tm; }
             }
-            f_curr = sdf(q_curr); 
+            f_curr = sdf(q_curr);
         }
         f_prev = f_curr;
     }
 }
-
 
 bool RobotSDF::get_line_intersections(
     const double* start_point,

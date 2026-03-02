@@ -99,55 +99,112 @@ __host__ __device__ int find_root(const int* parent, int x) {
 }
 
 
+// template <typename Function>
+// __global__
+// void init_frontier_kernel(
+//     const double* seed_points,
+//     int num_seeds,
+//     FrontierNode* d_frontier,
+//     int* d_frontier_size,
+//     Hashtable visited,
+//     FK_Triangulation fk,
+//     Function function,
+//     int max_frontier_size,
+//     int* component_array  // Added to initialize roots
+// ) {
+//     int tid = blockIdx.x * blockDim.x + threadIdx.x;
+//     if (tid < num_seeds) {
+//         component_array[tid] = tid;
+//     }
+    
+//     if (tid >= num_seeds) return;
+
+//     double seed[MAX_D]; 
+//     for (int i = 0; i < fk.amb_dim; i++) {
+//         seed[i] = seed_points[tid * fk.amb_dim + i];
+//     }
+
+//     Permutahedral_Simplex initial_simplex = locate_simplex(fk, seed);
+
+//     Permutahedral_Simplex edges[MAX_FACES]; 
+//     int num_edges = faces(initial_simplex, edges, 1);
+
+//     for (int j = 0; j < num_edges; j++) {
+//         double intersection_point[MAX_D];
+
+//         // if (edge_intersection(edges[j], function, fk, intersection_point)) {
+            
+//             Point p;
+//             for (int d = 0; d < fk.amb_dim; d++) p[d] = intersection_point[d];
+
+//             int insert_case = hash_insert(visited, edges[j], p, tid);
+//             if (insert_case == -1) {
+//                 if (!bound_check(fk, p)) continue;
+
+//                 int idx = atomicAdd(d_frontier_size, 1);
+//                 if (idx < max_frontier_size) {
+//                     d_frontier[idx].simplex = edges[j];
+//                     d_frontier[idx].component = tid;
+//                 }
+//             }
+//         // }
+//     }
+// }
+
 template <typename Function>
 __global__
-void init_frontier_kernel(
-    const double* seed_points,
+void initialize_kernel(
+    const double* seeds,
     int num_seeds,
-    FrontierNode* d_frontier,
-    int* d_frontier_size,
-    Hashtable visited,
+    FrontierNode* frontier,
+    int* frontier_size,
+    Hashtable d_Ls,
     FK_Triangulation fk,
     Function function,
-    int max_frontier_size,
-    int* component_array  // Added to initialize roots
+    int* component_array
 ) {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid < num_seeds) {
-        component_array[tid] = tid;
-    }
-    
     if (tid >= num_seeds) return;
 
-    double seed[MAX_D]; 
-    for (int i = 0; i < fk.amb_dim; i++) {
-        seed[i] = seed_points[tid * fk.amb_dim + i];
+    double seed[MAX_D];
+    for (int d = 0; d < fk.amb_dim; d++) {
+        seed[d] = seeds[tid * fk.amb_dim + d];
     }
 
-    Permutahedral_Simplex initial_simplex = locate_simplex(fk, seed);
-
-    Permutahedral_Simplex edges[MAX_FACES]; 
-    int num_edges = faces(initial_simplex, edges, 1);
+    Permutahedral_Simplex simplex = locate_simplex(fk, seed);
+    Permutahedral_Simplex edges[MAX_FACES];
+    int num_edges = faces(simplex, edges, 1);
 
     for (int j = 0; j < num_edges; j++) {
         double intersection_point[MAX_D];
+        if (!edge_intersection(edges[j], function, fk, intersection_point)) {
+            continue;
+        }
 
-        // if (edge_intersection(edges[j], function, fk, intersection_point)) {
-            
-            Point p;
-            for (int d = 0; d < fk.amb_dim; d++) p[d] = intersection_point[d];
+        Point p;
+        for (int d = 0; d < fk.amb_dim; d++) {
+            p[d] = intersection_point[d];
+        }
 
-            int insert_case = hash_insert(visited, edges[j], p, tid);
-            if (insert_case == -1) {
-                if (!bound_check(fk, p)) continue;
+        int insert_case = hash_insert(d_Ls, edges[j], p, tid);
+        if (insert_case == -2 || insert_case == tid) continue;
 
-                int idx = atomicAdd(d_frontier_size, 1);
-                if (idx < max_frontier_size) {
-                    d_frontier[idx].simplex = edges[j];
-                    d_frontier[idx].component = tid;
-                }
+        if (insert_case >= 0) {
+            int r1 = find_root(component_array, tid);
+            int r2 = find_root(component_array, insert_case);
+            if (r1 != r2) {
+                int high = max(r1, r2);
+                int low  = min(r1, r2);
+                atomicMin(&component_array[high], low);
             }
-        // }
+            continue;
+        }
+
+        if (!bound_check(fk, p)) continue;
+
+        int idx = atomicAdd(frontier_size, 1);
+        frontier[idx].simplex = edges[j];
+        frontier[idx].component = tid;
     }
 }
 
@@ -223,6 +280,126 @@ void expand_frontier_kernel (
     }
 }
 
+// template <typename Function>
+// void traceManifold(
+//     const FK_Triangulation& fk_host,
+//     const Function& function,
+//     Hashtable& d_Ls,
+//     double* seed_host,
+//     int* component_array,
+//     int num_seeds
+// ) {
+//     std::cout << "I am here 0\n";
+//     FrontierNode* d_frontier, *d_next_frontier;
+//     int *d_frontier_size, *d_next_frontier_size;
+
+//     int max_frontier_size = 500000; 
+
+//     std::cout << "I am here 1\n";
+
+//     cudaMalloc(&d_frontier, max_frontier_size * sizeof(FrontierNode));
+//     cudaMalloc(&d_next_frontier, max_frontier_size * sizeof(FrontierNode));
+//     cudaMalloc(&d_frontier_size, sizeof(int));
+//     cudaMalloc(&d_next_frontier_size, sizeof(int));
+
+//     Permutahedral_Simplex initial_simplex[MAX_NUM_SEEDS];
+
+//     for (int i = 0; i < num_seeds; i++) {
+//         double seed[MAX_D];
+//         std::cout << "Seed " << i << ": ";
+//         for (int j =  0; j < fk_host.amb_dim; j++) {
+//             seed[j] = seed_host[i * fk_host.amb_dim + j];
+//             std::cout << seed[j] << " ";
+//         }
+//         std::cout << " SDF: " << function(seed);
+//         std::cout << std::endl;
+//         initial_simplex[i] = locate_simplex(fk_host, seed);
+//     }
+
+//     Permutahedral_Simplex initial_edges[MAX_NUM_SEEDS][MAX_FACES];
+//     int num_faces[MAX_NUM_SEEDS] = {0};
+//     std::cout << "I am here 2\n";
+//     for (int i = 0; i < num_seeds; i++) {
+//         num_faces[i] += faces(initial_simplex[i], initial_edges[i], 1);
+//     }
+
+//     int total_faces = 0;
+//     FrontierNode initial_frontier[MAX_NUM_SEEDS * MAX_FACES];
+//     int offset = 0;
+//     for (int i = 0; i < num_seeds; i++) {
+//         for (int j = 0; j < num_faces[i]; j++) {
+//             initial_frontier[offset].simplex = initial_edges[i][j];
+//             initial_frontier[offset++].component = i;
+//         }
+//         total_faces += num_faces[i];
+//     }
+    
+//     std::cout << "Initial simplex has " << total_faces << " edges\n";
+
+//     cudaMemcpy(d_frontier, initial_frontier, total_faces * sizeof(FrontierNode), cudaMemcpyHostToDevice);
+//     cudaMemcpy(d_frontier_size, &total_faces, sizeof(int), cudaMemcpyHostToDevice);
+
+//     FK_Triangulation fk_device = fk_host;
+
+//     int frontier_size_host = total_faces;
+//     int intersect_count = 0;
+//     int iteration = 0;
+
+//     while (frontier_size_host > 0) {
+        
+//         cudaMemset(d_next_frontier_size, 0, sizeof(int));
+
+//         int threads = 256;
+//         int blocks = (frontier_size_host + threads - 1) / threads;
+
+//         expand_frontier_kernel<<<blocks, threads>>>(
+//             d_frontier,
+//             frontier_size_host,
+//             d_next_frontier,
+//             d_next_frontier_size,
+//             d_Ls,
+//             fk_device,
+//             function,
+//             component_array
+//         );
+        
+//         // Check for kernel errors
+//         cudaError_t err = cudaGetLastError();
+//         if (err != cudaSuccess) {
+//             std::cerr << "Kernel launch error: " << cudaGetErrorString(err) << std::endl;
+//             break;
+//         }
+        
+//         // Wait for kernel to complete
+//         cudaDeviceSynchronize();
+
+//         cudaMemcpy(&frontier_size_host, d_next_frontier_size, sizeof(int), cudaMemcpyDeviceToHost);
+//         std::swap(d_frontier, d_next_frontier);
+//         std::swap(d_frontier_size, d_next_frontier_size);
+
+//         intersect_count += frontier_size_host;
+//         iteration++;
+
+//         if (iteration % 10 == 0) {
+//             std::cout << "Iteration " << iteration << ", Frontier Size: " << frontier_size_host << ", Total Intersections: " << intersect_count << std::endl;
+//         }
+        
+//         // Safety check to prevent infinite loops
+//         if (iteration > 10000) {
+//             std::cerr << "Warning: Exceeded maximum iterations (10000), stopping.\n";
+//             break;
+//         }
+//     }
+
+//     std::cout << "Intersection Count: " << intersect_count << std::endl;
+//     std::cout << "Total iterations: " << iteration << std::endl;
+
+//     cudaFree(d_frontier);
+//     cudaFree(d_frontier_size);
+//     cudaFree(d_next_frontier);
+//     cudaFree(d_next_frontier_size);
+// }
+
 template <typename Function>
 void traceManifold(
     const FK_Triangulation& fk_host,
@@ -232,59 +409,38 @@ void traceManifold(
     int* component_array,
     int num_seeds
 ) {
-    std::cout << "I am here 0\n";
     FrontierNode* d_frontier, *d_next_frontier;
     int *d_frontier_size, *d_next_frontier_size;
+    FK_Triangulation fk_device = fk_host;
 
-    int max_frontier_size = 500000; 
-
-    std::cout << "I am here 1\n";
+    int max_frontier_size = 1000000; 
 
     cudaMalloc(&d_frontier, max_frontier_size * sizeof(FrontierNode));
     cudaMalloc(&d_next_frontier, max_frontier_size * sizeof(FrontierNode));
     cudaMalloc(&d_frontier_size, sizeof(int));
     cudaMalloc(&d_next_frontier_size, sizeof(int));
 
-    Permutahedral_Simplex initial_simplex[MAX_NUM_SEEDS];
+    int frontier_size_host = 0;
 
-    for (int i = 0; i < num_seeds; i++) {
-        double seed[MAX_D];
-        std::cout << "Seed " << i << ": ";
-        for (int j =  0; j < fk_host.amb_dim; j++) {
-            seed[j] = seed_host[i * fk_host.amb_dim + j];
-            std::cout << seed[j] << " ";
-        }
-        std::cout << " SDF: " << function(seed);
-        std::cout << std::endl;
-        initial_simplex[i] = locate_simplex(fk_host, seed);
-    }
+    double* d_seeds;
+    cudaMalloc(&d_seeds, num_seeds * fk_host.amb_dim * sizeof(double));
+    cudaMemcpy(d_seeds, seed_host, num_seeds * fk_host.amb_dim * sizeof(double), cudaMemcpyHostToDevice);
 
-    Permutahedral_Simplex initial_edges[MAX_NUM_SEEDS][MAX_FACES];
-    int num_faces[MAX_NUM_SEEDS] = {0};
-    std::cout << "I am here 2\n";
-    for (int i = 0; i < num_seeds; i++) {
-        num_faces[i] += faces(initial_simplex[i], initial_edges[i], 1);
-    }
+    cudaMemset(d_frontier_size, 0, sizeof(int));
 
-    int total_faces = 0;
-    FrontierNode initial_frontier[MAX_NUM_SEEDS * MAX_FACES];
-    int offset = 0;
-    for (int i = 0; i < num_seeds; i++) {
-        for (int j = 0; j < num_faces[i]; j++) {
-            initial_frontier[offset].simplex = initial_edges[i][j];
-            initial_frontier[offset++].component = i;
-        }
-        total_faces += num_faces[i];
-    }
-    
-    std::cout << "Initial simplex has " << total_faces << " edges\n";
+    int threads = 256;
+    int blocks = (num_seeds + threads - 1) / threads;
+    initialize_kernel<<<blocks, threads>>>(
+        d_seeds, num_seeds,
+        d_frontier, d_frontier_size,
+        d_Ls, fk_device, function, component_array
+    );
+    cudaDeviceSynchronize();
 
-    cudaMemcpy(d_frontier, initial_frontier, total_faces * sizeof(FrontierNode), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_frontier_size, &total_faces, sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(&frontier_size_host, d_frontier_size, sizeof(int), cudaMemcpyDeviceToHost);
+    cudaFree(d_seeds);
 
-    FK_Triangulation fk_device = fk_host;
 
-    int frontier_size_host = total_faces;
     int intersect_count = 0;
     int iteration = 0;
 

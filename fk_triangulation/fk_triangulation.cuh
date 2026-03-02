@@ -85,7 +85,7 @@ struct C_Triangulation : public FK_Triangulation {
     }
 };
 
-
+__host__ __device__ __forceinline__
 double inf() {
 #ifdef __CUDA_ARCH__
     return CUDART_INF;
