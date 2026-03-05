@@ -153,6 +153,15 @@ void dump_intersecting_tetrahedra_from_components(
     }
 }
 
+int count_components(int* component_array, int size) {
+    int count = 0;
+    for (int i = 0; i < size; i++) {
+        if (find_root(component_array, i) == i)
+            count++;
+    }
+    return count;
+}
+
 int main(int argc, char* argv[]) {
     if (argc < 4) {
         std::cout << "Usage: " << argv[0] << " <robot_file> <scene_file> <num_rays>" << std::endl;
@@ -173,7 +182,6 @@ int main(int argc, char* argv[]) {
         auto& j = robot.joints[i];
         h_joints[i] = {j.type, j.origin_xyz, j.origin_rpy, j.axis, j.lower_limit, j.upper_limit, j.parent_link_idx, j.child_link_idx};
     }
-
 
     DeviceLink* d_links;
     DeviceJoint* d_joints;
@@ -203,8 +211,8 @@ int main(int argc, char* argv[]) {
     FK_Triangulation fk(robot.num_dof());
     fk.scale = 10.0;
 
-    std::vector<double> initial_guess = {0.0, 0.0, 0.0, 0.0};
-    std::vector<double> final_guess = {0.0, 3.05, 0.0, 0.0};
+    std::vector<double> initial_guess = {0.0, 0.0, 0.0, 0.0, 0.0};
+    std::vector<double> final_guess = {0.0, 3.05, 0.0, 0.0, 0.0};
 
     std::vector<double>seed;
     int dim = robot.num_dof();
@@ -212,7 +220,7 @@ int main(int argc, char* argv[]) {
     bool ok = sdf_functor.get_line_rays(initial_guess.data(), final_guess.data(), seed, num_rays);
     if (!ok) {
         std::cerr << "Failed to project seed onto manifold\n";
-        return;
+        return -1;
     }
 
     int* d_component_array;
@@ -244,13 +252,11 @@ int main(int argc, char* argv[]) {
     //     }
     // }
 
-    int hash_capacity = 1 << 20;
+    int hash_capacity = 1 << 25;
     Hashtable d_Ls = allocate_device_hash_table(hash_capacity);
 
     auto start = std::chrono::high_resolution_clock::now();
-    std::cout << "I am in main1\n";
     traceManifold(fk, sdf_functor, d_Ls, seed.data(), d_component_array, num_seeds);
-    std::cout << "I am in main2\n";
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     std::cout << "Surface triangulation time: " << duration.count() << " milliseconds" << std::endl;
@@ -261,7 +267,10 @@ int main(int argc, char* argv[]) {
     for (int i = 0; i < num_seeds; i++) std::cout << hcompo[i] << " ";
     std::cout << std::endl;
 
-    dump_intersecting_tetrahedra_from_components(fk, d_Ls, hcompo,  "../plotting/intersecting_tetrahedra_co");
+    int count = count_components(hcompo, num_seeds);
+    std::cout << "Number of components: " << count << std::endl;
+
+    // dump_intersecting_tetrahedra_from_components(fk, d_Ls, hcompo,  "../plotting/intersecting_tetrahedra_co");
 
     cudaFree(d_Ls.simplices);
     cudaFree(d_Ls.coordinates);

@@ -413,7 +413,7 @@ void traceManifold(
     int *d_frontier_size, *d_next_frontier_size;
     FK_Triangulation fk_device = fk_host;
 
-    int max_frontier_size = 1000000; 
+    int max_frontier_size = 5000000; 
 
     cudaMalloc(&d_frontier, max_frontier_size * sizeof(FrontierNode));
     cudaMalloc(&d_next_frontier, max_frontier_size * sizeof(FrontierNode));
