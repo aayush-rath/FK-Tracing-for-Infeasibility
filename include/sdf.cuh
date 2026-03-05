@@ -155,9 +155,60 @@ struct RobotSDF {
     ) const;
 };
 
+struct SphereSDF{
+    int dof;
+    __host__ __device__ __forceinline__
+    double operator()(const double* config) const {
+        double sum = 0.0;
+        double sum1 = 0.0;
+        double center[] = {0.0, 1.0, 0.0, 0.0, 0.0};
+        double center1[] = {0.0, 2.0, 0.0, 0.0, 0.0};
+        for (int i = 0; i < dof; i++) {
+            sum += (config[i] - center[i]) * (config[i] - center[i]);
+            sum1 += (config[i] - center1[i]) * (config[i] - center1[i]);
+        }
+        if (sum < sum1) return sum - 0.4;
+        return sum1 - 0.4; 
+    }
+    bool get_line_intersections(
+        const double* start_point,
+        const double* goal_point,
+        std::vector<double>& intersections,
+        int samples = 500,
+        int max_bisection_iters = 500,
+        double tol = 1e-11
+    ) const;
+
+    bool get_line_rays(
+        const double* start_point,
+        const double* goal_point,
+        std::vector<double>& intersections,
+        int num_rays = 40,
+        int samples = 100,
+        int max_bisection_iters = 100,
+        double tol = 1e-8
+    ) const;
+};
+
 
 __global__ void ray_intersection_kernel(
     RobotSDF sdf,
+    const double* d_start,
+    const double* d_goal,
+    const double* d_main_dir,
+    double max_dist,
+    int num_rays,
+    int samples,
+    int max_bisection_iters,
+    double tol,
+    double* d_out_intersections,
+    int* d_out_count,
+    int max_outputs,
+    int dof
+);
+
+__global__ void ray_intersection_kernel(
+    SphereSDF sdf,
     const double* d_start,
     const double* d_goal,
     const double* d_main_dir,
@@ -178,3 +229,11 @@ void eval_sdf_kernel(
     const double* q,
     double* out
 );
+
+__global__
+void eval_sdf_kernel(
+    SphereSDF sdf,
+    const double* q,
+    double* out
+);
+
