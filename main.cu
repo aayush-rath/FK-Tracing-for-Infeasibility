@@ -160,17 +160,19 @@ int count_components(int* component_array, int size) {
             count++;
     }
     return count;
-}
+};
 
 int main(int argc, char* argv[]) {
-    if (argc < 4) {
-        std::cout << "Usage: " << argv[0] << " <robot_file> <scene_file> <num_rays>" << std::endl;
+    if (argc < 6) {
+        std::cout << "Usage: " << argv[0] << " <robot_file> <scene_file> <num_rays> <scale> <save: y or n>" << std::endl;
         return 0;
     }
 
     const char* robot_file = argv[1];
     const char* scene_file = argv[2];
     int num_rays = std::stoi(argv[3]);
+    int scale = std::stoi(argv[4]);
+    bool save = argv[5][0] == 'y' || argv[5][0] == 'Y';
 
     Robot robot = load_urdf(robot_file);
     Scene scene = load_scene_json(scene_file);
@@ -209,15 +211,16 @@ int main(int argc, char* argv[]) {
     sdf_functor.dof = robot.num_dof();
 
     FK_Triangulation fk(robot.num_dof());
-    fk.scale = 10.0;
+    fk.scale = 5.0;
 
     std::vector<double> initial_guess = {0.0, 0.0, 0.0, 0.0, 0.0};
-    std::vector<double> final_guess = {0.0, 3.05, 0.0, 0.0, 0.0};
+    std::vector<double> final_guess = {0, 0.85, 0.75, 0.0, 0.0};
 
     std::vector<double>seed;
     int dim = robot.num_dof();
 
-    bool ok = sdf_functor.get_line_rays(initial_guess.data(), final_guess.data(), seed, num_rays);
+    bool ok = sdf_functor.get_interior_line_rays(initial_guess.data(), final_guess.data(), seed, num_rays);
+    // bool ok = sdf_functor.get_interior_points_from_file("../plotting/intersecting_tetrahedra_co_component_0.txt", seed, num_rays);    
     if (!ok) {
         std::cerr << "Failed to project seed onto manifold\n";
         return -1;
@@ -257,6 +260,38 @@ int main(int argc, char* argv[]) {
 
     auto start = std::chrono::high_resolution_clock::now();
     traceManifold(fk, sdf_functor, d_Ls, seed.data(), d_component_array, num_seeds);
+    std::vector<Point> h_values(d_Ls.capacity);
+    cudaMemcpy(h_values.data(), d_Ls.coordinates, d_Ls.capacity * sizeof(Point), cudaMemcpyDeviceToHost);
+    cudaFree(d_Ls.coordinates);
+    cudaFree(d_Ls.occupied);
+    cudaFree(d_Ls.simplices);
+    d_Ls = allocate_device_hash_table(hash_capacity);
+    seed.clear();
+    for (int i = 0; i < d_Ls.capacity; i++) {
+        if (h_values[i][0] != 0 || h_values[i][1] != 0 || h_values[i][2] != 0) {
+            seed.push_back(h_values[i][0]);
+            seed.push_back(h_values[i][1]);
+            seed.push_back(h_values[i][2]);
+        }
+    }
+    fk.scale = 8.0;
+    traceManifold(fk, sdf_functor, d_Ls, seed.data(), d_component_array, num_seeds);
+    h_values.clear();
+    cudaMemcpy(h_values.data(), d_Ls.coordinates, d_Ls.capacity * sizeof(Point), cudaMemcpyDeviceToHost);
+    cudaFree(d_Ls.coordinates);
+    cudaFree(d_Ls.occupied);
+    cudaFree(d_Ls.simplices);
+    d_Ls = allocate_device_hash_table(hash_capacity);
+    seed.clear();
+    for (int i = 0; i < d_Ls.capacity; i++) {
+        if (h_values[i][0] != 0 || h_values[i][1] != 0 || h_values[i][2] != 0) {
+            seed.push_back(h_values[i][0]);
+            seed.push_back(h_values[i][1]);
+            seed.push_back(h_values[i][2]);
+        }
+    }
+    fk.scale = scale;
+    traceManifold(fk, sdf_functor, d_Ls, seed.data(), d_component_array, num_seeds);
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     std::cout << "Surface triangulation time: " << duration.count() << " milliseconds" << std::endl;
@@ -270,7 +305,7 @@ int main(int argc, char* argv[]) {
     int count = count_components(hcompo, num_seeds);
     std::cout << "Number of components: " << count << std::endl;
 
-    // dump_intersecting_tetrahedra_from_components(fk, d_Ls, hcompo,  "../plotting/intersecting_tetrahedra_co");
+    if (save) dump_intersecting_tetrahedra_from_components(fk, d_Ls, hcompo,  "../plotting/intersecting_tetrahedra_co");
 
     cudaFree(d_Ls.simplices);
     cudaFree(d_Ls.coordinates);
@@ -285,5 +320,3 @@ int main(int argc, char* argv[]) {
     std::cout << "Done." << std::endl;
     return 0;
 }
-
-
