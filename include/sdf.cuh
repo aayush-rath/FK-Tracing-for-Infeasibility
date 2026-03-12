@@ -153,6 +153,20 @@ struct RobotSDF {
         int max_bisection_iters = 100,
         double tol = 1e-8
     ) const;
+    bool get_interior_line_rays(
+        const double* start_point,
+        const double* goal_point,
+        std::vector<double>& intersections,
+        int num_rays = 40,
+        int samples = 100,
+        int max_bisection_iters = 200,
+        double tol = 1e-10
+    ) const;
+    bool get_interior_points_from_file(
+        const std::string& filename,
+        std::vector<double>& intersections,
+        int num_points = 100
+    ) const;
 };
 
 struct SphereSDF{
