@@ -163,16 +163,17 @@ int count_components(int* component_array, int size) {
 };
 
 int main(int argc, char* argv[]) {
-    if (argc < 6) {
-        std::cout << "Usage: " << argv[0] << " <robot_file> <scene_file> <num_rays> <scale> <save: y or n>" << std::endl;
+    if (argc < 7) {
+        std::cout << "Usage: " << argv[0] << " <robot_file> <scene_file> <num_rays> <scale_1> <scale_2> <save: y or n>" << std::endl;
         return 0;
     }
 
     const char* robot_file = argv[1];
     const char* scene_file = argv[2];
     int num_rays = std::stoi(argv[3]);
-    int scale = std::stoi(argv[4]);
-    bool save = argv[5][0] == 'y' || argv[5][0] == 'Y';
+    double scale0 = std::stod(argv[4]);
+    double scale = std::stod(argv[5]);
+    bool save = argv[6][0] == 'y' || argv[6][0] == 'Y';
 
     Robot robot = load_urdf(robot_file);
     Scene scene = load_scene_json(scene_file);
@@ -210,8 +211,8 @@ int main(int argc, char* argv[]) {
     sdf_functor.d_ctx = d_ctx;
     sdf_functor.dof = robot.num_dof();
 
-    FK_Triangulation fk(robot.num_dof());
-    fk.scale = 5.0;
+    FK_Triangulation c(robot.num_dof());
+    c.scale = scale0;
 
     std::vector<double> initial_guess = {0.0, 0.0, 0.0, 0.0, 0.0};
     std::vector<double> final_guess = {0, 0.85, 0.75, 0.0, 0.0};
@@ -259,38 +260,30 @@ int main(int argc, char* argv[]) {
     Hashtable d_Ls = allocate_device_hash_table(hash_capacity);
 
     auto start = std::chrono::high_resolution_clock::now();
-    traceManifold(fk, sdf_functor, d_Ls, seed.data(), d_component_array, num_seeds);
+    traceManifold(c, sdf_functor, d_Ls, seed.data(), d_component_array, num_seeds);
     std::vector<Point> h_values(d_Ls.capacity);
     cudaMemcpy(h_values.data(), d_Ls.coordinates, d_Ls.capacity * sizeof(Point), cudaMemcpyDeviceToHost);
+    seed.clear();
+    for (int i = 0; i < d_Ls.capacity; i++) {
+        if (h_values[i][0] != 0 || h_values[i][1] != 0 || h_values[i][2] != 0 || h_values[i][3] != 0) {
+            for (int d = 0; d < dim; d++) seed.push_back(h_values[i][d]);
+        }
+    }
     cudaFree(d_Ls.coordinates);
     cudaFree(d_Ls.occupied);
     cudaFree(d_Ls.simplices);
+    cudaFree(d_component_array);
+
     d_Ls = allocate_device_hash_table(hash_capacity);
-    seed.clear();
-    for (int i = 0; i < d_Ls.capacity; i++) {
-        if (h_values[i][0] != 0 || h_values[i][1] != 0 || h_values[i][2] != 0) {
-            seed.push_back(h_values[i][0]);
-            seed.push_back(h_values[i][1]);
-            seed.push_back(h_values[i][2]);
-        }
-    }
-    fk.scale = 8.0;
-    traceManifold(fk, sdf_functor, d_Ls, seed.data(), d_component_array, num_seeds);
-    h_values.clear();
-    cudaMemcpy(h_values.data(), d_Ls.coordinates, d_Ls.capacity * sizeof(Point), cudaMemcpyDeviceToHost);
-    cudaFree(d_Ls.coordinates);
-    cudaFree(d_Ls.occupied);
-    cudaFree(d_Ls.simplices);
-    d_Ls = allocate_device_hash_table(hash_capacity);
-    seed.clear();
-    for (int i = 0; i < d_Ls.capacity; i++) {
-        if (h_values[i][0] != 0 || h_values[i][1] != 0 || h_values[i][2] != 0) {
-            seed.push_back(h_values[i][0]);
-            seed.push_back(h_values[i][1]);
-            seed.push_back(h_values[i][2]);
-        }
-    }
+    std::cout << "Number of seeds after first trace: " << seed.size() / dim << std::endl;
+    FK_Triangulation fk(robot.num_dof());
     fk.scale = scale;
+
+    num_seeds = seed.size() / dim;
+    cudaMalloc(&d_component_array, num_seeds * sizeof(int));
+    std::vector<int> h_comp1(num_seeds);
+    for(int i=0; i< num_seeds; i++) h_comp1[i] = i;
+    cudaMemcpy(d_component_array, h_comp1.data(), num_seeds * sizeof(int), cudaMemcpyHostToDevice);
     traceManifold(fk, sdf_functor, d_Ls, seed.data(), d_component_array, num_seeds);
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
@@ -298,9 +291,6 @@ int main(int argc, char* argv[]) {
 
     int hcompo[num_seeds];
     cudaMemcpy(hcompo, d_component_array, num_seeds * sizeof(int), cudaMemcpyDeviceToHost);
-    std::cout << "Component array: ";
-    for (int i = 0; i < num_seeds; i++) std::cout << hcompo[i] << " ";
-    std::cout << std::endl;
 
     int count = count_components(hcompo, num_seeds);
     std::cout << "Number of components: " << count << std::endl;
