@@ -498,30 +498,6 @@ void traceManifold(
     cudaFree(d_next_frontier_size);
 }
 
-struct Permutahedral_Simplex_Hash{
-    std::size_t operator()(const Permutahedral_Simplex& s) const {
-        std::size_t h = 0;
-
-        auto hash_combine = [&](std::size_t v) {
-            h ^= v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
-        };
-
-        hash_combine(s.amb_dim);
-        hash_combine(s.num_blocks);
-
-        for (int i = 0; i < s.amb_dim; i++) {
-            hash_combine(std::hash<int32_t>{}(s.anchor[i]));
-        }
-
-        for (int i = 0; i < s.num_blocks; i++) {
-            hash_combine(s.block_sizes[i]);
-            for (int j = 0; j < s.block_sizes[i]; j++) hash_combine(s.blocks[i][j]); 
-        }
-
-        return h;
-    }
-};
-
 bool same_point(
     const Point& a,
     const Point& b,

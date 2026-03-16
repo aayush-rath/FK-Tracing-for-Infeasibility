@@ -14,9 +14,9 @@ Aayush Rath
 #include <functional>
 #include <cmath>
 
-constexpr int MAX_D = 4;
-constexpr int MAX_FACES = 10;
-constexpr int MAX_COFACES = 26;
+constexpr int MAX_D = 5;
+constexpr int MAX_FACES = 12;
+constexpr int MAX_COFACES = 120;
 
 // Get the value of C(n, r) =  number of combinations
 int binomial (int n, int r) {

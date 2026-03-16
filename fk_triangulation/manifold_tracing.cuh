@@ -11,6 +11,7 @@ Aayush Rath
 #include "permutahedral_simplex.cuh"
 #include "fk_triangulation.cuh"
 #include <unordered_map>
+#include <unordered_set>
 #include <omp.h>
 
 template <typename Function>
@@ -105,7 +106,6 @@ void initialize_kernel(
     int num_seeds,
     FrontierNode* frontier,
     int* frontier_size,
-    Hashtable d_Ls,
     FK_Triangulation fk,
     Function function,
     int* component_array
@@ -133,20 +133,6 @@ void initialize_kernel(
             p[d] = intersection_point[d];
         }
 
-        int insert_case = hash_insert(d_Ls, edges[j], p, tid);
-        if (insert_case == -2 || insert_case == tid) continue;
-
-        if (insert_case >= 0) {
-            int r1 = find_root(component_array, tid);
-            int r2 = find_root(component_array, insert_case);
-            if (r1 != r2) {
-                int high = max(r1, r2);
-                int low  = min(r1, r2);
-                atomicMin(&component_array[high], low);
-            }
-            continue;
-        }
-
         if (!bound_check(fk, p)) continue;
 
         int idx = atomicAdd(frontier_size, 1);
@@ -160,13 +146,18 @@ __global__
 void expand_frontier_kernel(
     const FrontierNode* frontier,
     int frontier_size,
+
     FrontierNode* next_frontier,
     int* next_frontier_size,
-    Hashtable visited,
+
+    Hashtable frontier_hash,
+    Hashtable prev_frontier_hash,
+
     FK_Triangulation fk,
     Function function,
     int* component_array
 ) {
+
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     if (tid >= frontier_size) return;
 
@@ -192,83 +183,165 @@ void expand_frontier_kernel(
             for (int d = 0; d < fk.amb_dim; d++)
                 p[d] = intersection_point[d];
 
-            int insert_case = hash_insert(visited, new_edges[j], p, component);
-
-            if (insert_case == -2 || insert_case == component) continue;
-
-            if (insert_case >= 0) {
-                int r1 = find_root(component_array, component);
-                int r2 = find_root(component_array, insert_case);
-                if (r1 != r2)
-                    atomicMin(&component_array[max(r1,r2)], min(r1,r2));
+            if (hash_lookup(frontier_hash, new_edges[j]))
                 continue;
-            }
 
-            if (!bound_check(fk, p)) continue;
+            if (hash_lookup(prev_frontier_hash, new_edges[j]))
+                continue;
+
+            if (!bound_check(fk, p))
+                continue;
 
             unsigned mask = __activemask();
-            int leader    = __ffs(mask) - 1;
-            int lane      = threadIdx.x & 31;
+            int leader = __ffs(mask) - 1;
+            int lane = threadIdx.x & 31;
 
             int warp_offset;
+
             if (lane == leader)
                 warp_offset = atomicAdd(next_frontier_size, __popc(mask));
+
             warp_offset = __shfl_sync(mask, warp_offset, leader);
 
             int my_offset = warp_offset + __popc(mask & ((1u << lane) - 1));
 
-            next_frontier[my_offset].simplex   = new_edges[j];
+            next_frontier[my_offset].simplex = new_edges[j];
             next_frontier[my_offset].component = component;
         }
     }
+}
+
+__global__
+void build_hash_kernel(
+    const FrontierNode* frontier,
+    int frontier_size,
+    Hashtable table
+) {
+
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    if (tid >= frontier_size)
+        return;
+
+    const Permutahedral_Simplex& s = frontier[tid].simplex;
+
+    Point dummy;
+    #pragma unroll
+    for (int i = 0; i < MAX_D; i++)
+        dummy[i] = 0.0;
+
+    hash_insert(
+        table,
+        s,
+        dummy,
+        frontier[tid].component
+    );
 }
 
 template <typename Function>
 void traceManifold(
     const FK_Triangulation& fk_host,
     const Function& function,
-    Hashtable& d_Ls,
     double* seed_host,
     int* component_array,
-    int num_seeds
+    int num_seeds,
+    std::unordered_set<
+        Permutahedral_Simplex,
+        Permutahedral_Simplex_Hash
+    >& visited
 ) {
-    FrontierNode* d_frontier, *d_next_frontier;
-    int *d_frontier_size, *d_next_frontier_size;
+
     FK_Triangulation fk_device = fk_host;
 
-    int max_frontier_size = 5000000; 
+    FrontierNode* d_frontier;
+    FrontierNode* d_next_frontier;
+
+    int* d_frontier_size;
+    int* d_next_frontier_size;
+
+    int max_frontier_size = 20000000;
 
     cudaMalloc(&d_frontier, max_frontier_size * sizeof(FrontierNode));
     cudaMalloc(&d_next_frontier, max_frontier_size * sizeof(FrontierNode));
+
     cudaMalloc(&d_frontier_size, sizeof(int));
     cudaMalloc(&d_next_frontier_size, sizeof(int));
 
-    int frontier_size_host = 0;
+    cudaMemset(d_frontier_size, 0, sizeof(int));
+
+    /* ---------------- GPU HASH TABLES ---------------- */
+
+    Hashtable d_frontier_hash = allocate_device_hash_table(1 * max_frontier_size);
+    Hashtable d_prev_frontier_hash = allocate_device_hash_table(1 * max_frontier_size);
+
+    cudaMemset(d_frontier_hash.occupied, 0,
+               d_frontier_hash.capacity * sizeof(int));
+
+    cudaMemset(d_prev_frontier_hash.occupied, 0,
+               d_prev_frontier_hash.capacity * sizeof(int));
+
+    /* ---------------- HOST BUFFERS ---------------- */
+
+    std::vector<FrontierNode> h_next_frontier(max_frontier_size);
+
+    /* ---------------- SEED INITIALIZATION ---------------- */
 
     double* d_seeds;
     cudaMalloc(&d_seeds, num_seeds * fk_host.amb_dim * sizeof(double));
-    cudaMemcpy(d_seeds, seed_host, num_seeds * fk_host.amb_dim * sizeof(double), cudaMemcpyHostToDevice);
 
-    cudaMemset(d_frontier_size, 0, sizeof(int));
+    cudaMemcpy(
+        d_seeds,
+        seed_host,
+        num_seeds * fk_host.amb_dim * sizeof(double),
+        cudaMemcpyHostToDevice
+    );
 
     int threads = 256;
     int blocks = (num_seeds + threads - 1) / threads;
+
     initialize_kernel<<<blocks, threads>>>(
-        d_seeds, num_seeds,
-        d_frontier, d_frontier_size,
-        d_Ls, fk_device, function, component_array
+        d_seeds,
+        num_seeds,
+        d_frontier,
+        d_frontier_size,
+        fk_device,
+        function,
+        component_array
     );
+
     cudaDeviceSynchronize();
 
-    cudaMemcpy(&frontier_size_host, d_frontier_size, sizeof(int), cudaMemcpyDeviceToHost);
+    int frontier_size_host = 0;
+
+    cudaMemcpy(&frontier_size_host,
+               d_frontier_size,
+               sizeof(int),
+               cudaMemcpyDeviceToHost);
+
     cudaFree(d_seeds);
 
+    /* ---------------- BUILD INITIAL HASH ---------------- */
+
+    cudaMemset(d_frontier_hash.occupied, 0,
+               d_frontier_hash.capacity * sizeof(int));
+
+    build_hash_kernel<<<
+        (frontier_size_host + 255) / 256,
+        256
+    >>>(
+        d_frontier,
+        frontier_size_host,
+        d_frontier_hash
+    );
+
+    cudaDeviceSynchronize();
+
+    /* ---------------- BFS LOOP ---------------- */
 
     int intersect_count = 0;
     int iteration = 0;
 
     while (frontier_size_host > 0) {
-        
+
         cudaMemset(d_next_frontier_size, 0, sizeof(int));
 
         int threads = 256;
@@ -279,35 +352,87 @@ void traceManifold(
             frontier_size_host,
             d_next_frontier,
             d_next_frontier_size,
-            d_Ls,
+            d_frontier_hash,
+            d_prev_frontier_hash,
             fk_device,
             function,
             component_array
         );
-        
-        // Check for kernel errors
-        cudaError_t err = cudaGetLastError();
-        if (err != cudaSuccess) {
-            std::cerr << "Kernel launch error: " << cudaGetErrorString(err) << std::endl;
-            break;
-        }
-        
-        // Wait for kernel to complete
+
         cudaDeviceSynchronize();
 
-        cudaMemcpy(&frontier_size_host, d_next_frontier_size, sizeof(int), cudaMemcpyDeviceToHost);
+        int next_size = 0;
+
+        cudaMemcpy(&next_size,
+                   d_next_frontier_size,
+                   sizeof(int),
+                   cudaMemcpyDeviceToHost);
+
+        cudaMemcpy(
+            h_next_frontier.data(),
+            d_next_frontier,
+            next_size * sizeof(FrontierNode),
+            cudaMemcpyDeviceToHost
+        );
+
+        /* -------- CPU GLOBAL VISITED FILTER -------- */
+
+        std::vector<FrontierNode> filtered;
+        filtered.reserve(next_size);
+
+        for (int i = 0; i < next_size; i++) {
+
+            const FrontierNode& node = h_next_frontier[i];
+
+            if (visited.insert(node.simplex).second)
+                filtered.push_back(node);
+        }
+
+        frontier_size_host = filtered.size();
+
+        cudaMemcpy(
+            d_next_frontier,
+            filtered.data(),
+            frontier_size_host * sizeof(FrontierNode),
+            cudaMemcpyHostToDevice
+        );
+
+        /* -------- ROTATE HASH TABLES -------- */
+
+        std::swap(d_prev_frontier_hash, d_frontier_hash);
+
+        cudaMemset(
+            d_frontier_hash.occupied,
+            0,
+            d_frontier_hash.capacity * sizeof(int)
+        );
+
+        build_hash_kernel<<<
+            (frontier_size_host + 255) / 256,
+            256
+        >>>(
+            d_next_frontier,
+            frontier_size_host,
+            d_frontier_hash
+        );
+
+        cudaDeviceSynchronize();
+
         std::swap(d_frontier, d_next_frontier);
-        std::swap(d_frontier_size, d_next_frontier_size);
 
         intersect_count += frontier_size_host;
         iteration++;
 
         if (iteration % 10 == 0) {
-            std::cout << "Iteration " << iteration << ", Frontier Size: " << frontier_size_host << ", Total Intersections: " << intersect_count << std::endl;
+            std::cout
+                << "Iteration " << iteration
+                << ", Frontier Size: " << frontier_size_host
+                << ", Total Intersections: " << intersect_count
+                << std::endl;
         }
-        
+
         if (iteration > 10000) {
-            std::cerr << "Warning: Exceeded maximum iterations (10000), stopping.\n";
+            std::cerr << "Warning: Exceeded maximum iterations\n";
             break;
         }
     }
@@ -315,35 +440,21 @@ void traceManifold(
     std::cout << "Intersection Count: " << intersect_count << std::endl;
     std::cout << "Total iterations: " << iteration << std::endl;
 
+    /* ---------------- CLEANUP ---------------- */
+
     cudaFree(d_frontier);
-    cudaFree(d_frontier_size);
     cudaFree(d_next_frontier);
+    cudaFree(d_frontier_size);
     cudaFree(d_next_frontier_size);
+
+    cudaFree(d_frontier_hash.coordinates);
+    cudaFree(d_frontier_hash.occupied);
+    cudaFree(d_frontier_hash.simplices);
+
+    cudaFree(d_prev_frontier_hash.coordinates);
+    cudaFree(d_prev_frontier_hash.occupied);
+    cudaFree(d_prev_frontier_hash.simplices);
 }
-
-struct Permutahedral_Simplex_Hash{
-    std::size_t operator()(const Permutahedral_Simplex& s) const {
-        std::size_t h = 0;
-
-        auto hash_combine = [&](std::size_t v) {
-            h ^= v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
-        };
-
-        hash_combine(s.amb_dim);
-        hash_combine(s.num_blocks);
-
-        for (int i = 0; i < s.amb_dim; i++) {
-            hash_combine(std::hash<int32_t>{}(s.anchor[i]));
-        }
-
-        for (int i = 0; i < s.num_blocks; i++) {
-            hash_combine(s.block_sizes[i]);
-            for (int j = 0; j < s.block_sizes[i]; j++) hash_combine(s.blocks[i][j]); 
-        }
-
-        return h;
-    }
-};
 
 bool same_point(
     const Point& a,

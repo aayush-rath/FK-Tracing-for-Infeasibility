@@ -220,8 +220,8 @@ int main(int argc, char* argv[]) {
     std::vector<double>seed;
     int dim = robot.num_dof();
 
-    // bool ok = sdf_functor.get_interior_line_rays(initial_guess.data(), final_guess.data(), seed, num_rays);
-    bool ok = sdf_functor.get_interior_points_from_file("../plotting/intersecting_tetrahedra_co_component_0.txt", seed, num_rays);    
+    bool ok = sdf_functor.get_interior_line_rays(initial_guess.data(), final_guess.data(), seed, num_rays);
+    // bool ok = sdf_functor.get_interior_points_from_file("../plotting/intersecting_tetrahedra_co_component_0.txt", seed, num_rays);    
     if (!ok) {
         std::cerr << "Failed to project seed onto manifold\n";
         return -1;
@@ -256,42 +256,35 @@ int main(int argc, char* argv[]) {
     //     }
     // }
 
-    // int hash_capacity = 1 << 25;
-    // Hashtable d_Ls = allocate_device_hash_table(hash_capacity);
-
-    std::unordered_set<Permutahedral_Simplex, Permutahedral_Simplex_Hash> visited;
+    int hash_capacity = 1 << 25;
+    Hashtable d_Ls = allocate_device_hash_table(hash_capacity);
 
     auto start = std::chrono::high_resolution_clock::now();
-    traceManifold(c, sdf_functor, seed.data(), d_component_array, num_seeds, visited);
-    std::vector<double> new_seeds;
-    for (auto& simplex : visited) {
-        new_seeds.insert(new_seeds.end(), simplex.anchor, simplex.anchor + dim);
+    traceManifold(c, sdf_functor, d_Ls, seed.data(), d_component_array, num_seeds);
+    std::vector<Point> h_values(d_Ls.capacity);
+    cudaMemcpy(h_values.data(), d_Ls.coordinates, d_Ls.capacity * sizeof(Point), cudaMemcpyDeviceToHost);
+    seed.clear();
+    for (int i = 0; i < d_Ls.capacity; i++) {
+        if (h_values[i][0] != 0 || h_values[i][1] != 0 || h_values[i][2] != 0 || h_values[i][3] != 0) {
+            for (int d = 0; d < dim; d++) seed.push_back(h_values[i][d]);
+        }
     }
-    // std::vector<Point> h_values(d_Ls.capacity);
-    // cudaMemcpy(h_values.data(), d_Ls.coordinates, d_Ls.capacity * sizeof(Point), cudaMemcpyDeviceToHost);
-    // seed.clear();
-    // for (int i = 0; i < d_Ls.capacity; i++) {
-    //     if (h_values[i][0] != 0 || h_values[i][1] != 0 || h_values[i][2] != 0 || h_values[i][3] != 0) {
-    //         for (int d = 0; d < dim; d++) seed.push_back(h_values[i][d]);
-    //     }
-    // }
-    // cudaFree(d_Ls.coordinates);
-    // cudaFree(d_Ls.occupied);
-    // cudaFree(d_Ls.simplices);
+    cudaFree(d_Ls.coordinates);
+    cudaFree(d_Ls.occupied);
+    cudaFree(d_Ls.simplices);
     cudaFree(d_component_array);
-    visited.clear();
 
-    // d_Ls = allocate_device_hash_table(hash_capacity);
-    std::cout << "Number of seeds after first trace: " << new_seeds.size() / dim << std::endl;
+    d_Ls = allocate_device_hash_table(hash_capacity);
+    std::cout << "Number of seeds after first trace: " << seed.size() / dim << std::endl;
     FK_Triangulation fk(robot.num_dof());
     fk.scale = scale;
 
-    num_seeds = new_seeds.size() / dim;
+    num_seeds = seed.size() / dim;
     cudaMalloc(&d_component_array, num_seeds * sizeof(int));
     std::vector<int> h_comp1(num_seeds);
     for(int i=0; i< num_seeds; i++) h_comp1[i] = i;
     cudaMemcpy(d_component_array, h_comp1.data(), num_seeds * sizeof(int), cudaMemcpyHostToDevice);
-    traceManifold(fk, sdf_functor, new_seeds.data(), d_component_array, num_seeds, visited);
+    traceManifold(fk, sdf_functor, d_Ls, seed.data(), d_component_array, num_seeds);
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     std::cout << "Surface triangulation time: " << duration.count() << " milliseconds" << std::endl;
@@ -302,11 +295,11 @@ int main(int argc, char* argv[]) {
     int count = count_components(hcompo, num_seeds);
     std::cout << "Number of components: " << count << std::endl;
 
-    // if (save) dump_intersecting_tetrahedra_from_components(fk, d_Ls, hcompo,  "../plotting/intersecting_tetrahedra_co");
+    if (save) dump_intersecting_tetrahedra_from_components(fk, d_Ls, hcompo,  "../plotting/intersecting_tetrahedra_co");
 
-    // cudaFree(d_Ls.simplices);
-    // cudaFree(d_Ls.coordinates);
-    // cudaFree(d_Ls.occupied);
+    cudaFree(d_Ls.simplices);
+    cudaFree(d_Ls.coordinates);
+    cudaFree(d_Ls.occupied);
     cudaFree(d_component_array);
     cudaFree(d_joints);
     cudaFree(d_links);
