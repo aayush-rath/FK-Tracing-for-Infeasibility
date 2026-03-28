@@ -215,13 +215,14 @@ int main(int argc, char* argv[]) {
     c.scale = scale0;
 
     std::vector<double> initial_guess = {0.0, 0.0, 0.0, 0.0, 0.0};
-    std::vector<double> final_guess = {0, 0.85, 0.75, 0.0, 0.0};
+    // std::vector<double> final_guess = {0, 0.85, 0.75, 0.0, 0.0};
+    std::vector<double> final_guess = {2.4, -0.1, -0.85, 0, 0};
 
     std::vector<double>seed;
     int dim = robot.num_dof();
 
-    // bool ok = sdf_functor.get_interior_line_rays(initial_guess.data(), final_guess.data(), seed, num_rays);
-    bool ok = sdf_functor.get_interior_points_from_file("../plotting/intersecting_tetrahedra_co_component_0.txt", seed, num_rays);    
+    bool ok = sdf_functor.get_interior_line_rays(initial_guess.data(), final_guess.data(), seed, num_rays);
+    // bool ok = sdf_functor.get_interior_points_from_file("../plotting/intersecting_tetrahedra_co_component_0.txt", seed, num_rays);    
     if (!ok) {
         std::cerr << "Failed to project seed onto manifold\n";
         return -1;
@@ -262,11 +263,10 @@ int main(int argc, char* argv[]) {
     std::unordered_set<Permutahedral_Simplex, Permutahedral_Simplex_Hash> visited;
 
     auto start = std::chrono::high_resolution_clock::now();
-    traceManifold(c, sdf_functor, seed.data(), d_component_array, num_seeds, visited);
-    std::vector<double> new_seeds;
-    for (auto& simplex : visited) {
-        new_seeds.insert(new_seeds.end(), simplex.anchor, simplex.anchor + dim);
-    }
+    // traceManifold(c, sdf_functor, seed.data(), d_component_array, num_seeds, visited);
+    // for (auto& simplex : visited) {
+    //     seed.insert(seed.end(), simplex.anchor, simplex.anchor + dim);
+    // }
     // std::vector<Point> h_values(d_Ls.capacity);
     // cudaMemcpy(h_values.data(), d_Ls.coordinates, d_Ls.capacity * sizeof(Point), cudaMemcpyDeviceToHost);
     // seed.clear();
@@ -282,16 +282,16 @@ int main(int argc, char* argv[]) {
     visited.clear();
 
     // d_Ls = allocate_device_hash_table(hash_capacity);
-    std::cout << "Number of seeds after first trace: " << new_seeds.size() / dim << std::endl;
+    std::cout << "Number of seeds after first trace: " << seed.size() / dim << std::endl;
     FK_Triangulation fk(robot.num_dof());
     fk.scale = scale;
 
-    num_seeds = new_seeds.size() / dim;
+    num_seeds = seed.size() / dim;
     cudaMalloc(&d_component_array, num_seeds * sizeof(int));
     std::vector<int> h_comp1(num_seeds);
     for(int i=0; i< num_seeds; i++) h_comp1[i] = i;
     cudaMemcpy(d_component_array, h_comp1.data(), num_seeds * sizeof(int), cudaMemcpyHostToDevice);
-    traceManifold(fk, sdf_functor, new_seeds.data(), d_component_array, num_seeds, visited);
+    traceManifold(fk, sdf_functor, seed.data(), d_component_array, num_seeds, visited);
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     std::cout << "Surface triangulation time: " << duration.count() << " milliseconds" << std::endl;

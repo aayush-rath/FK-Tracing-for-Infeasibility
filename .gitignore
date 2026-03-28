@@ -2,3 +2,5 @@ build
 vscode
 plotting
 fk_triangulation/manifold_tracing_old.cuh
+fk_triangulation/manifold_tracing_old_1.cuh
+fk_triangulation/permutahedral_simplex_old.cuh
