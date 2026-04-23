@@ -186,3 +186,67 @@ bool rgs_next(uint8_t omega, uint8_t a, uint8_t* rgs) {
     }
     return false;
 }
+
+__host__ __device__ __forceinline__
+bool solve_linear_system(
+    int d,
+    const double A[MAX_D][MAX_D],  // Lambda
+    const double b[MAX_D],         // rhs = (point - offset)
+    double x[MAX_D]                // solution
+) {
+    double M[MAX_D][MAX_D + 1];
+
+    // Build augmented matrix [A | b]
+    for (int i = 0; i < d; i++) {
+        for (int j = 0; j < d; j++)
+            M[i][j] = A[i][j];
+        M[i][d] = b[i];
+    }
+
+    // Forward elimination with partial pivoting
+    for (int k = 0; k < d; k++) {
+        // Find pivot row
+        int piv = k;
+        double max_val = fabs(M[k][k]);
+        for (int i = k + 1; i < d; i++) {
+            double v = fabs(M[i][k]);
+            if (v > max_val) {
+                max_val = v;
+                piv = i;
+            }
+        }
+
+        // Singular check
+        if (max_val < 1e-12) return false;
+
+        // Swap rows if needed
+        if (piv != k) {
+            for (int j = k; j <= d; j++) {
+                double tmp = M[k][j];
+                M[k][j] = M[piv][j];
+                M[piv][j] = tmp;
+            }
+        }
+
+        // Normalize pivot row
+        double pivot = M[k][k];
+        for (int j = k; j <= d; j++)
+            M[k][j] /= pivot;
+
+        // Eliminate below
+        for (int i = k + 1; i < d; i++) {
+            double factor = M[i][k];
+            for (int j = k; j <= d; j++)
+                M[i][j] -= factor * M[k][j];
+        }
+    }
+
+    // Back substitution
+    for (int i = d - 1; i >= 0; i--) {
+        x[i] = M[i][d];
+        for (int j = i + 1; j < d; j++)
+            x[i] -= M[i][j] * x[j];
+    }
+
+    return true;
+}

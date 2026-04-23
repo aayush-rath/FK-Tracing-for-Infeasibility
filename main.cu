@@ -4,6 +4,7 @@
 #include "manifold_tracing.cuh"
 #include <chrono>
 #include <fstream>
+#include <cmath>
 
 #define CUDA_CHECK(call) { \
     cudaError_t err = call; \
@@ -153,6 +154,66 @@ void dump_intersecting_tetrahedra_from_components(
     }
 }
 
+void dump_visited_tetrahedra(
+    const FK_Triangulation& fk,
+    const std::unordered_set<
+        Permutahedral_Simplex,
+        Permutahedral_Simplex_Hash
+    >& visited,
+    const std::string& filename
+) {
+    std::ofstream out(filename);
+    if (!out) {
+        std::cerr << "Failed to open " << filename << "\n";
+        return;
+    }
+
+    // Store unique tetrahedra
+    std::unordered_set<
+        Permutahedral_Simplex,
+        Permutahedral_Simplex_Hash
+    > tetrahedra;
+
+    // Step 1: edges -> cofaces -> tetrahedra
+    for (const auto& simplex : visited) {
+
+        // We only care about edges
+        if (simplex.num_blocks != 2)
+            continue;
+
+        Permutahedral_Simplex cofs[MAX_COFACES];
+        int num_cofaces = cofaces(simplex, cofs, fk.amb_dim);
+
+        for (int i = 0; i < num_cofaces; i++) {
+            if (cofs[i].num_blocks == 4) {
+                tetrahedra.insert(cofs[i]);
+            }
+        }
+    }
+
+    // Step 2: write tetrahedra to file
+    int written = 0;
+
+    for (const auto& tet : tetrahedra) {
+        double verts[4][3];
+        simplex_vertices_cartesian(fk, tet, verts);
+
+        for (int i = 0; i < 4; i++) {
+            out << verts[i][0] << " "
+                << verts[i][1] << " "
+                << verts[i][2] << " ";
+        }
+        out << "\n";
+        written++;
+    }
+
+    out.close();
+
+    std::cout << "Wrote " << written
+              << " tetrahedra to "
+              << filename << "\n";
+}
+
 int count_components(int* component_array, int size) {
     int count = 0;
     for (int i = 0; i < size; i++) {
@@ -163,34 +224,64 @@ int count_components(int* component_array, int size) {
 };
 
 int main(int argc, char* argv[]) {
-    if (argc < 7) {
-        std::cout << "Usage: " << argv[0] << " <robot_file> <scene_file> <num_rays> <scale_1> <scale_2> <save: y or n>" << std::endl;
+    if (argc < 6) {
+        std::cout << "Usage: " << argv[0] << " <robot_file> <scene_file> <num_rays> <scale> <save: y or n>" << std::endl;
         return 0;
     }
 
     const char* robot_file = argv[1];
     const char* scene_file = argv[2];
     int num_rays = std::stoi(argv[3]);
-    double scale0 = std::stod(argv[4]);
-    double scale = std::stod(argv[5]);
-    bool save = argv[6][0] == 'y' || argv[6][0] == 'Y';
+    double scale = std::stod(argv[4]);
+    bool save = argv[5][0] == 'y' || argv[5][0] == 'Y';
 
     Robot robot = load_urdf(robot_file);
+    int dim = robot.num_dof();
     Scene scene = load_scene_json(scene_file);
 
     std::vector<DeviceLink> h_links(robot.num_links());
     for (size_t i = 0; i < robot.links.size(); i++) h_links[i].shape = robot.links[i].shape;
+    std::cout << "Number of links: " << robot.num_links() << std::endl;
     std::vector<DeviceJoint> h_joints(robot.num_joints());
     for (size_t i = 0; i < robot.joints.size(); i++) {
         auto& j = robot.joints[i];
         h_joints[i] = {j.type, j.origin_xyz, j.origin_rpy, j.axis, j.lower_limit, j.upper_limit, j.parent_link_idx, j.child_link_idx};
     }
 
+    std::vector<double> joint_max_limit(dim);
+    std::vector<double> joint_min_limit(dim);
+    double* d_max_limits;
+    double* d_min_limits;
+
+    std::cout << "Joint max limit: ";
+    int dof_idx = 0;
+    for (size_t i = 0; i < robot.joints.size(); i++) {
+        if (robot.joints[i].type != FIXED) {
+            double upper = robot.joints[i].upper_limit;
+            double lower = robot.joints[i].lower_limit;
+            // Clamp infinite limits to finite values
+            if (!std::isfinite(upper)) upper = 3.14;
+            if (!std::isfinite(lower)) lower = -3.14;
+            joint_max_limit[dof_idx] = upper;
+            joint_min_limit[dof_idx] = lower;
+
+            std::cout << joint_max_limit[dof_idx] << " ";
+            std::cout << joint_min_limit[dof_idx] << " ";
+            dof_idx++;
+        }
+    }
+    std::cout << std::endl;
+
+    CUDA_CHECK(cudaMalloc(&d_max_limits, joint_max_limit.size() * sizeof(double)));
+    CUDA_CHECK(cudaMalloc(&d_min_limits, joint_max_limit.size() * sizeof(double)));
+    CUDA_CHECK(cudaMemcpy(d_max_limits, joint_max_limit.data(), joint_max_limit.size() * sizeof(double), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_min_limits, joint_min_limit.data(), joint_min_limit.size() * sizeof(double), cudaMemcpyHostToDevice));
+
     DeviceLink* d_links;
     DeviceJoint* d_joints;
     Primitive* d_obstacles;
 
-    CUDA_CHECK(cudaMalloc(&d_links, h_links.size() * sizeof(DeviceLink)))
+    CUDA_CHECK(cudaMalloc(&d_links, h_links.size() * sizeof(DeviceLink)));
     CUDA_CHECK(cudaMalloc(&d_joints, h_joints.size() * sizeof(DeviceJoint)));
     CUDA_CHECK(cudaMalloc(&d_obstacles, scene.num_primitives() * sizeof(Primitive)));
 
@@ -211,17 +302,24 @@ int main(int argc, char* argv[]) {
     sdf_functor.d_ctx = d_ctx;
     sdf_functor.dof = robot.num_dof();
 
-    FK_Triangulation c(robot.num_dof());
-    c.scale = scale0;
+    C_Triangulation c(robot.num_dof());
+    // for (int i = 0; i < robot.num_dof(); i++) c.b[i] ;
+    c.scale = scale;
 
     std::vector<double> initial_guess = {0.0, 0.0, 0.0, 0.0, 0.0};
-    std::vector<double> final_guess = {0, 0.85, 0.75, 0.0, 0.0};
+    // std::vector<double> final_guess = {0, 0.85, 0.75, 0.0, 0.0}; 
+    // std::vector<double> final_guess = {2.5, -0.95, 0, -0.05, 0.0};
+    std::vector<double> final_guess = {1.7, -0.85, 0, -0.06, 0.0};
+    // std::vector<double> final_guess = {-0.2, 0.95, 1.1, -0.5, 0.0};
 
     std::vector<double>seed;
-    int dim = robot.num_dof();
 
-    // bool ok = sdf_functor.get_interior_line_rays(initial_guess.data(), final_guess.data(), seed, num_rays);
-    bool ok = sdf_functor.get_interior_points_from_file("../plotting/intersecting_tetrahedra_co_component_0.txt", seed, num_rays);    
+    auto start_seed = std::chrono::high_resolution_clock::now();
+    bool ok = sdf_functor.get_interior_line_rays(initial_guess.data(), final_guess.data(), seed, num_rays);
+    auto end_seed = std::chrono::high_resolution_clock::now();
+
+    std::cout << "The duration taken for seed sampling: " << std::chrono::duration_cast<std::chrono::milliseconds>(end_seed - start_seed).count() << std::endl;
+    // bool ok = sdf_functor.get_interior_points_from_file("../plotting/intersecting_tetrahedra_co_component_0.txt", seed, num_rays);    
     if (!ok) {
         std::cerr << "Failed to project seed onto manifold\n";
         return -1;
@@ -248,50 +346,9 @@ int main(int argc, char* argv[]) {
     }
     std::cout << std::endl;
 
-    // double seed_flattened[MAX_NUM_SEEDS * MAX_D];
-    // int num_seeds = seed.size();
-    // for (int i = 0; i < num_seeds; i++) {
-    //     for (int j = 0; j < seed[0].size(); j++) {
-    //         seed_flattened[i * dim + j] = seed[i][j];
-    //     }
-    // }
-
-    // int hash_capacity = 1 << 25;
-    // Hashtable d_Ls = allocate_device_hash_table(hash_capacity);
-
     std::unordered_set<Permutahedral_Simplex, Permutahedral_Simplex_Hash> visited;
-
     auto start = std::chrono::high_resolution_clock::now();
-    traceManifold(c, sdf_functor, seed.data(), d_component_array, num_seeds, visited);
-    std::vector<double> new_seeds;
-    for (auto& simplex : visited) {
-        new_seeds.insert(new_seeds.end(), simplex.anchor, simplex.anchor + dim);
-    }
-    // std::vector<Point> h_values(d_Ls.capacity);
-    // cudaMemcpy(h_values.data(), d_Ls.coordinates, d_Ls.capacity * sizeof(Point), cudaMemcpyDeviceToHost);
-    // seed.clear();
-    // for (int i = 0; i < d_Ls.capacity; i++) {
-    //     if (h_values[i][0] != 0 || h_values[i][1] != 0 || h_values[i][2] != 0 || h_values[i][3] != 0) {
-    //         for (int d = 0; d < dim; d++) seed.push_back(h_values[i][d]);
-    //     }
-    // }
-    // cudaFree(d_Ls.coordinates);
-    // cudaFree(d_Ls.occupied);
-    // cudaFree(d_Ls.simplices);
-    cudaFree(d_component_array);
-    visited.clear();
-
-    // d_Ls = allocate_device_hash_table(hash_capacity);
-    std::cout << "Number of seeds after first trace: " << new_seeds.size() / dim << std::endl;
-    FK_Triangulation fk(robot.num_dof());
-    fk.scale = scale;
-
-    num_seeds = new_seeds.size() / dim;
-    cudaMalloc(&d_component_array, num_seeds * sizeof(int));
-    std::vector<int> h_comp1(num_seeds);
-    for(int i=0; i< num_seeds; i++) h_comp1[i] = i;
-    cudaMemcpy(d_component_array, h_comp1.data(), num_seeds * sizeof(int), cudaMemcpyHostToDevice);
-    traceManifold(fk, sdf_functor, new_seeds.data(), d_component_array, num_seeds, visited);
+    traceManifold(c, sdf_functor, seed.data(), d_component_array, num_seeds, visited, d_max_limits, d_min_limits);
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     std::cout << "Surface triangulation time: " << duration.count() << " milliseconds" << std::endl;
@@ -301,12 +358,9 @@ int main(int argc, char* argv[]) {
 
     int count = count_components(hcompo, num_seeds);
     std::cout << "Number of components: " << count << std::endl;
+    std::cout << "Number of simplices: " << visited.size() << std::endl;
+    if (save) dump_visited_tetrahedra(c, visited,  "../plotting/tets");
 
-    // if (save) dump_intersecting_tetrahedra_from_components(fk, d_Ls, hcompo,  "../plotting/intersecting_tetrahedra_co");
-
-    // cudaFree(d_Ls.simplices);
-    // cudaFree(d_Ls.coordinates);
-    // cudaFree(d_Ls.occupied);
     cudaFree(d_component_array);
     cudaFree(d_joints);
     cudaFree(d_links);

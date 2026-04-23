@@ -143,7 +143,7 @@ Robot load_urdf(const char* filename) {
                     link.shape.data.cylinder.radius = radius;
 
                     vec3 center(0, 0, 0);
-                    quat4 orientation(0, 0, 0, 0);
+                    quat4 orientation(1, 0, 0, 0);
                     if (origin_elm && origin_elm->Attribute("xyz")) {
                         float x, y, z;
                         sscanf(origin_elm->Attribute("xyz"), "%f %f %f", &x, &y, &z);
@@ -151,7 +151,7 @@ Robot load_urdf(const char* filename) {
                     }
                     if (origin_elm && origin_elm->Attribute("rpy")) {
                         float r, p, y;
-                        sscanf(origin_elm->Attribute("xyz"), "%f %f %f", &r, &p, &y);
+                        sscanf(origin_elm->Attribute("rpy"), "%f %f %f", &r, &p, &y);
                         orientation = euler_to_quat(r, p, y);
                     }
                     link.shape.data.cylinder.center = center;
@@ -168,7 +168,7 @@ Robot load_urdf(const char* filename) {
                     link.shape.data.box.size = size;
 
                     vec3 center(0, 0, 0);
-                    quat4 orientation(0, 0, 0, 0);
+                    quat4 orientation(1, 0, 0, 0);
                     if (origin_elm && origin_elm->Attribute("xyz")) {
                         float x, y, z;
                         sscanf(origin_elm->Attribute("xyz"), "%f %f %f", &x, &y, &z);
@@ -176,11 +176,11 @@ Robot load_urdf(const char* filename) {
                     }
                     if (origin_elm && origin_elm->Attribute("rpy")) {
                         float r, p, y;
-                        sscanf(origin_elm->Attribute("xyz"), "%f %f %f", &r, &p, &y);
+                        sscanf(origin_elm->Attribute("rpy"), "%f %f %f", &r, &p, &y);
                         orientation = euler_to_quat(r, p, y);
                     }
-                    link.shape.data.cylinder.center = center;
-                    link.shape.data.cylinder.orientation = orientation;
+                    link.shape.data.box.center = center;
+                    link.shape.data.box.orientation = orientation;
                 }
             }
         }
@@ -196,8 +196,19 @@ Robot load_urdf(const char* filename) {
     {
         Joint joint;
         joint.name = joint_elm->Attribute("name");
-        // const char* type_str = joint_elm->Attribute("type");
-        joint.type = REVOLUTE;
+        const char* type_str = joint_elm->Attribute("type");
+        // joint.type = REVOLUTE;
+        if (strcmp(type_str, "revolute") == 0) {
+            joint.type = REVOLUTE;
+        } else if (strcmp(type_str, "prismatic") == 0) {
+            joint.type = PRISMATIC;
+        } else if (strcmp(type_str, "fixed") == 0){
+            joint.type = FIXED;
+        } else {
+            std::cerr << "Unsupported joint type: " << type_str << std::endl;
+            continue;
+        }
+
 
         tinyxml2::XMLElement* origin_elm = joint_elm->FirstChildElement("origin");
         tinyxml2::XMLElement* parent_elm = joint_elm->FirstChildElement("parent");

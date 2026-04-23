@@ -41,13 +41,45 @@ struct DeviceSDFContext {
     DeviceSceneData scene;
 };
 
+// __device__ 
+// inline void compute_fk_device(
+//     const DeviceRobotData& robot,
+//     const double* joint_positions,
+//     Transform* link_transforms
+// ) {
+//     link_transforms[robot.root_link_idx] = Transform();
+
+//     for (int i = 0; i < robot.num_joints; i++) {
+//         const DeviceJoint& joint = robot.joints[i];
+
+//         Transform parent_tf = link_transforms[joint.parent_link_idx];
+
+//         Transform joint_tf;
+//         joint_tf.translation = joint.origin_xyz;
+//         joint_tf.rotation    = joint.origin_rpy;
+
+//         double q = joint_positions[i];
+
+//         if (joint.type == REVOLUTE) {
+//             quat4 motion = quat_from_axis_angle(joint.axis, q);
+//             joint_tf.rotation = joint_tf.rotation * motion;
+//         } else if (joint.type == PRISMATIC) {
+//             joint_tf.translation = joint_tf.translation + joint.axis * q;
+//         }
+
+//         link_transforms[joint.child_link_idx] = parent_tf * joint_tf;
+//     }
+// }
+
 __device__ 
 inline void compute_fk_device(
     const DeviceRobotData& robot,
-    const double* joint_positions,
+    const double* joint_positions,   // size = num_dof
     Transform* link_transforms
 ) {
     link_transforms[robot.root_link_idx] = Transform();
+
+    int q_idx = 0;  // <-- index into joint_positions (only non-fixed joints)
 
     for (int i = 0; i < robot.num_joints; i++) {
         const DeviceJoint& joint = robot.joints[i];
@@ -58,19 +90,24 @@ inline void compute_fk_device(
         joint_tf.translation = joint.origin_xyz;
         joint_tf.rotation    = joint.origin_rpy;
 
-        double q = joint_positions[i];
-
         if (joint.type == REVOLUTE) {
+            double q = joint_positions[q_idx++];  // consume DOF
+
             quat4 motion = quat_from_axis_angle(joint.axis, q);
             joint_tf.rotation = joint_tf.rotation * motion;
+
         } else if (joint.type == PRISMATIC) {
+            double q = joint_positions[q_idx++];  // consume DOF
+
             joint_tf.translation = joint_tf.translation + joint.axis * q;
+
+        } else if (joint.type == FIXED) {
+            // no q consumed
         }
 
         link_transforms[joint.child_link_idx] = parent_tf * joint_tf;
     }
 }
-
 
 
 __device__ 
@@ -188,7 +225,7 @@ struct SphereSDF{
         const double* start_point,
         const double* goal_point,
         std::vector<double>& intersections,
-        int samples = 500,
+        int samples = 1000,
         int max_bisection_iters = 500,
         double tol = 1e-11
     ) const;

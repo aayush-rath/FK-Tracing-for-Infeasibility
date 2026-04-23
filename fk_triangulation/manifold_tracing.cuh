@@ -79,12 +79,15 @@ bool edge_intersection(
     return true;
 }
 
+template <typename Triangulation>
 __device__
 bool bound_check(
-    const FK_Triangulation& fk,
-    Point& point
+    const Triangulation& fk,
+    Point& point,
+    const double* joint_max_limit,
+    const double* joint_min_limit
 ) {
-    for (int i = 0; i < fk.amb_dim; i++) if (point[i] > 3.14 || point[i] < -3.14) return false;
+    for (int i = 0; i < fk.amb_dim; i++) if (point[i] > joint_max_limit[i] || point[i] < joint_min_limit[i]) return false;
     return true;
 }
 
@@ -99,16 +102,19 @@ __host__ __device__ int find_root(const int* parent, int x) {
     return x;
 }
 
-template <typename Function>
+template <typename Triangulation, typename Function>
 __global__
 void initialize_kernel(
     const double* seeds,
     int num_seeds,
     FrontierNode* frontier,
     int* frontier_size,
-    FK_Triangulation fk,
+    Triangulation fk,
     Function function,
-    int* component_array
+    int* component_array,
+
+    const double* joint_max_limit,
+    const double* joint_min_limit
 ) {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     if (tid >= num_seeds) return;
@@ -133,7 +139,7 @@ void initialize_kernel(
             p[d] = intersection_point[d];
         }
 
-        if (!bound_check(fk, p)) continue;
+        if (!bound_check(fk, p, joint_max_limit, joint_min_limit)) continue;
 
         int idx = atomicAdd(frontier_size, 1);
         frontier[idx].simplex = edges[j];
@@ -141,7 +147,7 @@ void initialize_kernel(
     }
 }
 
-template <typename Function>
+template <typename Triangulation, typename Function>
 __global__
 void expand_frontier_kernel(
     const FrontierNode* frontier,
@@ -153,9 +159,12 @@ void expand_frontier_kernel(
     Hashtable frontier_hash,
     Hashtable prev_frontier_hash,
 
-    FK_Triangulation fk,
+    Triangulation fk,
     Function function,
-    int* component_array
+    int* component_array,
+
+    const double* joint_max_limit,
+    const double* joint_min_limit
 ) {
 
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -189,7 +198,7 @@ void expand_frontier_kernel(
             if (hash_lookup(prev_frontier_hash, new_edges[j]))
                 continue;
 
-            if (!bound_check(fk, p))
+            if (!bound_check(fk, p, joint_max_limit, joint_min_limit))
                 continue;
 
             unsigned mask = __activemask();
@@ -237,9 +246,9 @@ void build_hash_kernel(
     );
 }
 
-template <typename Function>
+template <typename Triangulation, typename Function>
 void traceManifold(
-    const FK_Triangulation& fk_host,
+    const Triangulation& fk_host,
     const Function& function,
     double* seed_host,
     int* component_array,
@@ -247,10 +256,12 @@ void traceManifold(
     std::unordered_set<
         Permutahedral_Simplex,
         Permutahedral_Simplex_Hash
-    >& visited
+    >& visited,
+    double* joint_max_limit,
+    double* joint_min_limit
 ) {
 
-    FK_Triangulation fk_device = fk_host;
+    Triangulation fk_device = fk_host;
 
     FrontierNode* d_frontier;
     FrontierNode* d_next_frontier;
@@ -305,7 +316,9 @@ void traceManifold(
         d_frontier_size,
         fk_device,
         function,
-        component_array
+        component_array,
+        joint_max_limit,
+        joint_min_limit
     );
 
     cudaDeviceSynchronize();
@@ -317,9 +330,11 @@ void traceManifold(
                sizeof(int),
                cudaMemcpyDeviceToHost);
 
+
+    std::cout << "Frontier size after search: " << frontier_size_host << std::endl;
+
     cudaFree(d_seeds);
 
-    /* ---------------- BUILD INITIAL HASH ---------------- */
 
     cudaMemset(d_frontier_hash.occupied, 0,
                d_frontier_hash.capacity * sizeof(int));
@@ -334,8 +349,6 @@ void traceManifold(
     );
 
     cudaDeviceSynchronize();
-
-    /* ---------------- BFS LOOP ---------------- */
 
     int intersect_count = 0;
     int iteration = 0;
@@ -356,7 +369,9 @@ void traceManifold(
             d_prev_frontier_hash,
             fk_device,
             function,
-            component_array
+            component_array,
+            joint_max_limit,
+            joint_min_limit
         );
 
         cudaDeviceSynchronize();
@@ -477,8 +492,6 @@ void triangulate_surface(
         Permutahedral_Simplex_Hash
     >& Ps
 ) {
-    std::cout << "=== TRIANGULATE SURFACE (POINT-DEDUP TEST) ===" << std::endl;
-
     std::vector<Permutahedral_Simplex> h_simplices(d_Ls.capacity);
     std::vector<Point>                h_coords(d_Ls.capacity);
     std::vector<int>                  h_occupied(d_Ls.capacity);
