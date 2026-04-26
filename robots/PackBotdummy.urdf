@@ -4,9 +4,9 @@
   <!-- Base link -->
   <link name="base_link">
     <visual>
-      <origin xyz="0 0 0.0" rpy="0 0 0"/>
+      <origin xyz="0 0 0.15" rpy="0 0 0"/>
       <geometry>
-        <cylinder length="0.1" radius="0.1"/>
+        <cylinder length="0.6" radius="0.15"/>
       </geometry>
       <material name="light_gray">
         <color rgba="0.8 0.8 0.8 1"/>
@@ -25,12 +25,12 @@
     </inertial>
   </link>
 
-  <!-- Link 1 -->
-  <link name="link1">
+    <!-- Link 1 -->
+  <link name="dummy">
     <visual>
-      <origin xyz="0 0 0.25" rpy="0 0 0"/>
+      <origin xyz="0 0 0.5" rpy="0 0 0"/>
       <geometry>
-        <box size="0.1 0.1 0.5"/>
+        <box size="0.0 0.0 0.0"/>
       </geometry>
       <material name="light_gray">
         <color rgba="0.8 0.8 0.8 1"/>
@@ -48,7 +48,40 @@
     <collision>
       <origin xyz="0 0 0.25" rpy="0 0 0"/>
       <geometry>
-        <box size="0.1 0.1 0.5"/>
+        <box size="0.1 0.1 0.4"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="1.0"/>
+      <origin xyz="0 0 0.25"/>
+      <inertia ixx="0.0015" ixy="0" ixz="0" iyy="0.0015" iyz="0" izz="0.0015"/>
+    </inertial>
+  </link>
+
+  <!-- Link 1 -->
+  <link name="link1">
+    <visual>
+      <origin xyz="0 0 0.5" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.2 0.2 1.0"/>
+      </geometry>
+      <material name="light_gray">
+        <color rgba="0.8 0.8 0.8 1"/>
+      </material>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="0.075"/>
+      </geometry>
+      <material name="light_blue">
+        <color rgba="0.4 0.6 1 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.25" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.1 0.1 0.4"/>
       </geometry>
     </collision>
     <inertial>
@@ -61,9 +94,9 @@
   <!-- Link 2 -->
   <link name="link2">
     <visual>
-      <origin xyz="0 0 0.25" rpy="0 0 0"/>
+      <origin xyz="0 0 0.6" rpy="0 0 0"/>
       <geometry>
-        <box size="0.1 0.1 0.5"/>
+        <box size="0.2 0.2 1.25"/>
       </geometry>
       <material name="light_gray">
         <color rgba="0.8 0.8 0.8 1"/>
@@ -81,7 +114,7 @@
     <collision>
       <origin xyz="0 0 0.25" rpy="0 0 0"/>
       <geometry>
-        <box size="0.1 0.1 0.5"/>
+        <box size="0.1 0.1 0.4"/>
       </geometry>
     </collision>
     <inertial>
@@ -94,9 +127,9 @@
   <!-- Link 3 -->
   <link name="link3">
     <visual>
-      <origin xyz="0 0 0.15" rpy="0 0 0"/>
+      <origin xyz="0 0 0.625" rpy="0 0 0"/>
       <geometry>
-        <box size="0.1 0.1 0.3"/>
+        <box size="0.2 0.2 1.25"/>
       </geometry>
       <material name="light_gray">
         <color rgba="0.8 0.8 0.8 1"/>
@@ -114,7 +147,7 @@
     <collision>
       <origin xyz="0 0 0.15" rpy="0 0 0"/>
       <geometry>
-        <box size="0.1 0.1 0.3"/>
+        <box size="0.1 0.1 0.4"/>
       </geometry>
     </collision>
     <inertial>
@@ -126,9 +159,9 @@
 
   <link name="link4">
     <visual>
-      <origin xyz="0 0 0.15" rpy="0 0 0"/>
+      <origin xyz="0 0 0.05" rpy="0 0 0"/>
       <geometry>
-        <box size="0.1 0.1 0.3"/>
+        <box size="0.3 0.3 0.3"/>
       </geometry>
       <material name="light_gray">
         <color rgba="0.8 0.8 0.8 1"/>
@@ -159,34 +192,42 @@
   <!-- Joints -->
   <joint name="joint1" type="revolute">
     <parent link="base_link"/>
-    <child link="link1"/>
+    <child link="dummy"/>
     <origin xyz="0 0 0.1" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
-    <limit lower="-1.57" upper="1.57" effort="5" velocity="1"/>
+    <limit lower="-3" upper="3" effort="5" velocity="1"/>
   </joint>
 
   <joint name="joint2" type="revolute">
-    <parent link="link1"/>
-    <child link="link2"/>
-    <origin xyz="0 0 0.55" rpy="0 0 0"/>
+    <parent link="dummy"/>
+    <child link="link1"/>
+    <origin xyz="0 0 0.3" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
-    <limit lower="0.0" upper="1.57" effort="5" velocity="1"/>
+    <limit lower="-3" upper="3" effort="5" velocity="1"/>
   </joint>
 
   <joint name="joint3" type="revolute">
-    <parent link="link2"/>
-    <child link="link3"/>
-    <origin xyz="0 0 0.55" rpy="0 0 0"/>
+    <parent link="link1"/>
+    <child link="link2"/>
+    <origin xyz="0 0 1.0" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
-    <limit lower="-1.57" upper="1.57" effort="5" velocity="1"/>
+    <limit lower="-3" upper="3" effort="5" velocity="1"/>
   </joint>
 
   <joint name="joint4" type="revolute">
+    <parent link="link2"/>
+    <child link="link3"/>
+    <origin xyz="0 0 1.2" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-3" upper="3" effort="5" velocity="1"/>
+  </joint>
+
+  <joint name="joint5" type="revolute">
     <parent link="link3"/>
     <child link="link4"/>
-    <origin xyz="0 0 0.35" rpy="0 0 0"/>
+    <origin xyz="0 0 1.2" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
-    <limit lower="-1.57" upper="" effort="1.57" velocity="1"/>
+    <limit lower="-1" upper="1" effort="5" velocity="1"/>
   </joint>
 
 </robot>

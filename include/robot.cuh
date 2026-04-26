@@ -8,7 +8,8 @@
 
 enum JOINT_TYPE {
     REVOLUTE,
-    PRISMATIC
+    PRISMATIC,
+    FIXED
 };
 
 struct Joint {
@@ -49,8 +50,14 @@ struct Robot {
     int get_link_idx(const std::string& name) const { return link_name_to_idx.at(name); };
     int get_joint_idx(const std::string& name) const { return joint_name_to_idx.at(name); };
     
-    int num_dof() const {return joints.size(); }
-
+    int num_dof() const {
+        int count = 0;
+        for (int i = 0; i < joints.size(); i++) {
+            if (joints[i].type != FIXED) count++;
+        } 
+        return count;
+    }
+    
     __host__ __device__ int num_links() const {
         #ifdef __CUDA_ARCH__
         return num_links_val;

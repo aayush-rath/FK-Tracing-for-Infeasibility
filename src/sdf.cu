@@ -259,6 +259,9 @@ bool RobotSDF::get_line_intersections(
         return v;
     };
 
+    std::cout << "Start value: " << eval(std::vector<double>(start_point, start_point + dof)) << ", "
+              << "Goal value: " << eval(std::vector<double>(goal_point, goal_point + dof)) << std::endl;
+
     std::vector<double> dir(dof);
     for (int i = 0; i < dof; i++)
         dir[i] = goal_point[i] - start_point[i];

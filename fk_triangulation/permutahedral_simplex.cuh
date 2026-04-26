@@ -57,6 +57,30 @@ struct Hashtable {
     int capacity;                                                                                       // the size of the hash table
 };
 
+struct Permutahedral_Simplex_Hash{
+    std::size_t operator()(const Permutahedral_Simplex& s) const {
+        std::size_t h = 0;
+
+        auto hash_combine = [&](std::size_t v) {
+            h ^= v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
+        };
+
+        hash_combine(s.amb_dim);
+        hash_combine(s.num_blocks);
+
+        for (int i = 0; i < s.amb_dim; i++) {
+            hash_combine(std::hash<int32_t>{}(s.anchor[i]));
+        }
+
+        for (int i = 0; i < s.num_blocks; i++) {
+            hash_combine(s.block_sizes[i]);
+            for (int j = 0; j < s.block_sizes[i]; j++) hash_combine(s.blocks[i][j]); 
+        }
+
+        return h;
+    }
+};
+
 __device__ __forceinline__
 uint64_t hash_permutahedral_simplex(const Permutahedral_Simplex& s) {
     uint64_t h = 1469598103934665603ULL;                                                                // FNV_offset basis
@@ -108,6 +132,27 @@ int hash_insert(
     }
 
     return -2;
+}
+
+__device__ __forceinline__
+bool hash_lookup(
+    const Hashtable& h_table,
+    const Permutahedral_Simplex& key
+) {
+    uint64_t hash = hash_permutahedral_simplex(key);
+    int cap = h_table.capacity;
+
+    for (int probe = 0; probe < cap; probe++) {
+
+        int slot = (hash + probe) % cap;
+        if (h_table.occupied[slot] == 0)
+            return false;
+
+        if (h_table.simplices[slot] == key)
+            return true;
+    }
+
+    return false;
 }
 
 Hashtable allocate_device_hash_table(int capacity) {
