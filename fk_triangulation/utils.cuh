@@ -15,7 +15,7 @@ Aayush Rath
 #include <cmath>
 
 constexpr int MAX_D = 5;
-constexpr int MAX_FACES = 12;
+constexpr int MAX_FACES = 15;
 constexpr int MAX_COFACES = 120;
 
 // Get the value of C(n, r) =  number of combinations

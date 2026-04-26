@@ -243,6 +243,7 @@ int main(int argc, char* argv[]) {
     for (size_t i = 0; i < robot.links.size(); i++) h_links[i].shape = robot.links[i].shape;
     std::cout << "Number of links: " << robot.num_links() << std::endl;
     std::vector<DeviceJoint> h_joints(robot.num_joints());
+
     for (size_t i = 0; i < robot.joints.size(); i++) {
         auto& j = robot.joints[i];
         h_joints[i] = {j.type, j.origin_xyz, j.origin_rpy, j.axis, j.lower_limit, j.upper_limit, j.parent_link_idx, j.child_link_idx};
@@ -307,10 +308,16 @@ int main(int argc, char* argv[]) {
     c.scale = scale;
 
     std::vector<double> initial_guess = {0.0, 0.0, 0.0, 0.0, 0.0};
+    // std::vector<double> initial_guess = {0.0, 1.27, -2.52, 2.57, 0.0}; // PackBot
     // std::vector<double> final_guess = {0, 0.85, 0.75, 0.0, 0.0}; 
+    // std::vector<double> final_guess = {0, 0.8, 1.05, -0.3, 0.0}; // 4DOF Box Arm
     // std::vector<double> final_guess = {2.5, -0.95, 0, -0.05, 0.0};
-    std::vector<double> final_guess = {1.7, -0.85, 0, -0.06, 0.0};
-    // std::vector<double> final_guess = {-0.2, 0.95, 1.1, -0.5, 0.0};
+    std::vector<double> final_guess = {1.7, -0.85, 0, -0.06, 0.0}; // SCARA
+    // std::vector<double> final_guess = {0.3, 0, 0.1, 1.52, 0.0}; // Shoulder Joint
+    // std::vector<double> final_guess = {-0.2, 1.05, 1.27, -0.75, 0.0}; // Universal
+    // std::vector<double> final_guess = {0.0, -1.1, 0.65, 1.9, 0.0}; // Packbot
+    // std::vector<double> final_guess = {-0.25, 0.85, 0.2, 1.17, 0.0};
+    // std::vector<double> final_guess = {-0.15, 0.9, 0.25, 1.05, -0.05};
 
     std::vector<double>seed;
 
@@ -337,6 +344,7 @@ int main(int argc, char* argv[]) {
     std::cout << "Component array: ";
     for (int i = 0; i < 4; i++) std::cout << h_comp[i] << " ";
     std::cout << std::endl;
+
 
     std::cout << "Seeds: ";
     for (int i = 0; i < num_seeds * dim; i++) {
