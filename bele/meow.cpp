@@ -22,7 +22,7 @@ int main(int argc, char* argv[]) {
 
 	for (int i = 0; i < dim; i++) {
 		for (int j = 0; j < dim; j++) {
-			std::cout << std::fixed << std::setprecision(10) << result(i, j) << "\t";
+			std::cout << "Lambda[" << i << "][" << j << "] = " << std::fixed << std::setprecision(10) << result(i, j) << ";\t";
 		}
 		std::cout << std::endl;
 	}
@@ -31,7 +31,7 @@ int main(int argc, char* argv[]) {
 
 	for (int i = 0; i < dim; i++) {
 		for (int j = 0; j < dim; j++) {
-			std::cout << std::fixed << std::setprecision(10) << result_inv(i, j) << "\t";
+			std::cout << "Lambda_inv[" << i << "][" << j << "] = "  << std::fixed << std::setprecision(10) << result_inv(i, j) << ";\t";
 		}
 		std::cout << std::endl;
 	}
