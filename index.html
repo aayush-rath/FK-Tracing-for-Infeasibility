@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Towards Kinematic Actionable Infeasibility Detection in Motion Planning: a geometry-driven framework for certifying infeasibility in robot motion planning.">
+  <meta name="theme-color" content="#ffffff">
+  <title>Towards Kinematic Actionable Infeasibility Detection</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #202124;
+      --muted: #5f6368;
+      --line: #e5e7eb;
+      --soft: #f7f8fa;
+      --link: #0969da;
+      --content: 940px;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: #fff;
+      font: 16px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--link); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .container { width: min(var(--content), calc(100% - 40px)); margin: 0 auto; }
+    .hero { padding: 66px 0 36px; text-align: center; }
+    .eyebrow {
+      margin: 0 0 14px;
+      color: var(--muted);
+      font-size: .82rem;
+      font-weight: 650;
+      letter-spacing: .09em;
+      text-transform: uppercase;
+    }
+    h1 {
+      max-width: 850px;
+      margin: 0 auto 20px;
+      font-size: clamp(2rem, 4.6vw, 3.15rem);
+      line-height: 1.13;
+      letter-spacing: -.045em;
+      font-weight: 760;
+    }
+    .authors {
+        margin: 12px auto 8px;
+        font-size: 1.25rem;  /* Increased author names */
+        font-weight: 500;
+        line-height: 1.8;
+    }
+
+    .authors a {
+        color: #0969da;
+        font-weight: 600;
+        text-decoration: none;
+    }
+
+    .authors a:hover {
+        text-decoration: underline;
+    }
+
+    .affiliation {
+        margin-top: 10px;
+        font-size: 1.15rem;  /* Increased journal title */
+        font-weight: 700;
+        letter-spacing: -0.01em;
+
+        /* Colorful gradient text */
+        background: linear-gradient(
+            90deg,
+            #1c83fa 0%,
+            #ec2e4e 50%,
+            #db2777 100%
+        );
+
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+        color: transparent;
+    }
+    .venue {
+      display: inline-flex;
+      align-items: center;
+      margin-top: 18px;
+      padding: 4px 11px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: #444b53;
+      background: #fff;
+      font-size: .82rem;
+    }
+    .actions {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 24px;
+    }
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 42px;
+      padding: 9px 16px;
+      border: 1px solid #d1d5db;
+      border-radius: 7px;
+      color: var(--ink);
+      background: #fff;
+      font-size: .91rem;
+      font-weight: 650;
+      transition: background .15s ease, border-color .15s ease, transform .15s ease;
+    }
+    .button.primary { color: #fff; background: #24292f; border-color: #24292f; }
+    .button:hover { text-decoration: none; background: #f3f4f6; border-color: #aeb4bc; }
+    .button.primary:hover { background: #3b424a; border-color: #3b424a; }
+    .rule { border: 0; border-top: 1px solid var(--line); margin: 0; }
+    main { padding: 4px 0 52px; }
+    section { padding-top: 32px; }
+    h2 {
+      margin: 0 0 12px;
+      font-size: 1.45rem;
+      line-height: 1.3;
+      letter-spacing: -.025em;
+    }
+    p { margin: 0 0 14px; }
+    .abstract { color: #343a40; }
+    .overview-note {
+      margin: 18px 0 0;
+      padding: 14px 16px;
+      border-left: 3px solid #d1d5db;
+      background: var(--soft);
+      color: var(--muted);
+      font-size: .92rem;
+    }
+    .contributions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 16px;
+    }
+    .card {
+      padding: 17px 18px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: #fff;
+    }
+    .card h3 { margin: 0 0 5px; font-size: 1rem; line-height: 1.4; }
+    .card p { margin: 0; color: var(--muted); font-size: .93rem; line-height: 1.6; }
+    .paper-details { color: var(--muted); }
+    .citation {
+      overflow-x: auto;
+      margin: 12px 0 0;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--soft);
+      color: #24292f;
+      font: .83rem/1.65 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    .method-figure {
+        margin: 24px auto;
+        text-align: center;
+    }
+
+    .method-figure img {
+        display: block;
+        width: 100%;
+        max-width: 1400px;
+        height: auto;
+        margin: 0 auto;
+    }
+
+    .method-figure figcaption {
+        margin-top: 8px;
+        color: #5f6368;
+        font-size: 14px;
+    }
+    footer { padding: 22px 0 28px; border-top: 1px solid var(--line); color: var(--muted); font-size: .86rem; }
+    footer .container { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    @media (max-width: 620px) {
+      .container { width: min(100% - 32px, var(--content)); }
+      .hero { padding-top: 46px; }
+      .contributions { grid-template-columns: 1fr; }
+      section { padding-top: 27px; }
+    }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } * { transition: none !important; } }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="container">
+      <p class="eyebrow">Robotics · Motion Planning · Computational Geometry</p>
+      <h1>Towards Kinematic Actionable Infeasibility Detection in Motion Planning</h1>
+      <p class="authors">
+        <a href="https://aayush-rath.github.io">Aayush Rath</a>,
+        Lakshya Jindal,
+        Antony Thomas
+      </p>
+      <p class="affiliation">IEEE Robotics and Automation Letters (RA-L) 2026</p>
+      <nav class="actions" aria-label="Paper links">
+        <a class="button" href="https://arxiv.org/pdf/2609.32806" target="_blank" rel="noopener noreferrer">PDF ↗</a>
+        <a class="button" href="https://github.com/aayush-rath/FK-Tracing-for-Infeasibility" target="_blank" rel="noopener noreferrer">Code ↗</a>
+      </nav>
+    </div>
+  </header>
+
+  <hr class="rule">
+
+  <main class="container">
+    <section id="abstract">
+      <h2>Abstract</h2>
+      <div class="abstract">
+        <p>Motion planning in robotics requires not only computing collision-free paths, but also certifying infeasibility when no such path exists. While complete methods are limited to low-dimensional spaces, sampling-based planners cannot generally provide finite-time infeasibility certificates.</p>
+        <p>We present a geometry-driven framework for certifying infeasibility through an explicit, resolution-dependent analysis of configuration-space topology. Using signed distance fields, our approach traces separating manifolds induced by obstacle boundaries directly in configuration space, enabling both the detection of infeasibility and identification of its geometric causes.</p>
+        <p>To address computational challenges, we develop a GPU-accelerated parallel frontier-expansion algorithm for efficient simplicial reconstruction in high-dimensional spaces. Experiments on 4-DOF and 5-DOF robot scenarios demonstrate the feasibility of computing such certificates, with further opportunities for improving scalability to higher-dimensional settings.</p>
+      </div>
+    </section>
+
+    <section id="overview">
+      <h2>Method Overview</h2>
+           <figure class="method-figure">
+             <img src="assets/method.svg" alt="Overview of the proposed infeasibility detection method">
+             <figcaption align="center">Overview of the proposed algorithm.</figcaption>
+           </figure>
+      <p>The method traces obstacle-induced separating manifolds in configuration space, then identifies the geometric structures responsible for separating start and goal configurations.</p>
+    </section>
+
+    <section id="contributions">
+      <h2>Key Contributions</h2>
+      <div class="contributions">
+        <article class="card">
+          <h3>Geometric Infeasibility Certificates</h3>
+          <p>Trace separating manifolds in configuration space to certify when a collision-free motion cannot connect the specified configurations.</p>
+        </article>
+        <article class="card">
+          <h3>Actionable Geometric Explanations</h3>
+          <p>Identify the geometric structures responsible for infeasibility rather than simply reporting planning failure.</p>
+        </article>
+        <article class="card">
+          <h3>GPU-Accelerated Frontier Expansion</h3>
+          <p>Exploit parallel computation for efficient simplicial reconstruction of obstacle-induced boundaries in configuration space.</p>
+        </article>
+        <article class="card">
+          <h3>Evaluation in Higher-Dimensional Spaces</h3>
+          <p>Evaluate infeasibility certification on 4-DOF and 5-DOF robotic motion-planning problems.</p>
+        </article>
+      </div>
+    </section>
+    <section id="citation">
+      <h2>Citation</h2>
+      <pre class="citation">@misc{rath2026kinematicactionableinfeasibilitydetection,
+  title        = {Towards Kinematic Actionable Infeasibility Detection in Motion Planning},
+  author       = {Rath, Aayush and Jindal, Lakshya and Thomas, Antony},
+  year         = {2026},
+  eprint       = {2609.32806},
+  archivePrefix = {arXiv},
+  primaryClass = {cs.RO},
+  url          = {https://arxiv.org/abs/2609.32806}
+}</pre>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      <span>© 2026 Aayush Rath</span>
+      <a href="https://github.com/aayush-rath">GitHub profile ↗</a>
+    </div>
+  </footer>
+</body>
+</html>
